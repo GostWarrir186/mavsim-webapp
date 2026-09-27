@@ -1,8 +1,14 @@
 /* ═════════════════════════════════════════════════════════════════════════
-   Mavsimi Rason — дизайн-система WebApp.  v2
+   Mavsim Rason — дизайн-система WebApp.  v3
 
    Подключается ПЕРЕД локальным <style> страницы:
-       <link rel="stylesheet" href="theme.css?v=2">
+       <link rel="stylesheet" href="theme.css?v=3">
+
+   v3 (2026-09-27): айдентика по брендбуку MAVSIM, как на rason.mavsim.com —
+   оранжевый F77428 (главный признак бренда), зелёный 00875D (поддержка,
+   «доставлено»), нейтрали с зелёным подтоном F4F7F5 / DDE5E0 / 17221E,
+   шрифт Montserrat (свои файлы в fonts/, с расширенной кириллицей ради
+   таджикских ғ ӣ қ ӯ ҳ ҷ). Меняешь цвет бренда — меняй и на сайте.
 
    Принципы:
    • Одна палитра и один набор компонентов на все 5 страниц. Страница
@@ -19,30 +25,46 @@
    всегда важнее системной.
    ═════════════════════════════════════════════════════════════════════════ */
 
+@font-face {
+    font-family: 'Montserrat'; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/montserrat-cyrillic.woff2) format('woff2');
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+    font-family: 'Montserrat'; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/montserrat-cyrillic-ext.woff2) format('woff2');
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+    font-family: 'Montserrat'; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/montserrat-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
     /* ── холст и поверхности ── */
-    --bg:         #F2F3F6;
+    --bg:         #F4F7F5;
     --surface:    #FFFFFF;
-    --surface-2:  #EDEFF3;
-    --surface-3:  #E4E7EC;
-    --border:     #E1E4EA;
-    --border-strong: #CFD4DC;
+    --surface-2:  #EEF2EF;
+    --surface-3:  #E4EAE6;
+    --border:     #DDE5E0;
+    --border-strong: #C9D3CD;
 
     /* ── текст ── */
-    --ink:    #15181D;
-    --ink-2:  #5B6472;
-    --ink-3:  #8A93A1;
+    --ink:    #17221E;
+    --ink-2:  #46534D;
+    --ink-3:  #7B857F;
     --on-accent: #FFFFFF;
 
     /* ── акцент ── */
-    --accent:      #E4611C;
-    --accent-hover:#CC5415;
-    --accent-soft: #FDEDE4;
-    --accent-line: #F5C3A6;
+    --accent:      #F77428;
+    --accent-hover:#D95C11;
+    --accent-soft: #FEEEE3;
+    --accent-line: #FBC7A6;
 
     /* ── семантика ── */
-    --ok:        #12874A;
-    --ok-soft:   #E3F5EA;
+    --ok:        #00875D;
+    --ok-soft:   #E0F2EA;
     --warn:      #A96A00;
     --warn-soft: #FBF0DC;
     --info:      #2C5FD0;
@@ -57,7 +79,7 @@
     --s-ready:     #A96A00;
     --s-taken:     #2C5FD0;
     --s-transit:   #6141C4;
-    --s-delivered: #12874A;
+    --s-delivered: #00875D;
     --s-cancel:    #C4362D;
 
     /* ── форма ── */
@@ -70,7 +92,7 @@
     --shadow-lg: 0 2px 6px rgba(16, 20, 27, .07), 0 24px 48px -24px rgba(16, 20, 27, .30);
     --ring: 0 0 0 3px var(--accent-soft);
 
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     --tap: 44px;                /* минимальная площадь нажатия */
 }
 
@@ -83,13 +105,13 @@
         --border:    #333A45;
         --border-strong: #454D5A;
 
-        --ink:   #EDEFF3;
+        --ink:   #EEF2EF;
         --ink-2: #AEB6C2;
         --ink-3: #7E8794;
         --on-accent: #1A1008;
 
-        --accent:      #F5814A;
-        --accent-hover:#FF9463;
+        --accent:      #F77428;
+        --accent-hover:#FF9357;
         --accent-soft: #34241C;
         --accent-line: #5C3D2B;
 
@@ -114,7 +136,7 @@
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, .30);
         --shadow:    0 1px 2px rgba(0, 0, 0, .30), 0 6px 16px -10px rgba(0, 0, 0, .55);
         --shadow-lg: 0 2px 6px rgba(0, 0, 0, .35), 0 24px 48px -24px rgba(0, 0, 0, .65);
-        --ring: 0 0 0 3px rgba(245, 129, 74, .22);
+        --ring: 0 0 0 3px rgba(247, 116, 40, .24);
     }
 }
 
@@ -126,13 +148,13 @@
     --border:    #333A45;
     --border-strong: #454D5A;
 
-    --ink:   #EDEFF3;
+    --ink:   #EEF2EF;
     --ink-2: #AEB6C2;
     --ink-3: #7E8794;
     --on-accent: #1A1008;
 
-    --accent:      #F5814A;
-    --accent-hover:#FF9463;
+    --accent:      #F77428;
+    --accent-hover:#FF9357;
     --accent-soft: #34241C;
     --accent-line: #5C3D2B;
 
@@ -157,29 +179,29 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .30);
     --shadow:    0 1px 2px rgba(0, 0, 0, .30), 0 6px 16px -10px rgba(0, 0, 0, .55);
     --shadow-lg: 0 2px 6px rgba(0, 0, 0, .35), 0 24px 48px -24px rgba(0, 0, 0, .65);
-    --ring: 0 0 0 3px rgba(245, 129, 74, .22);
+    --ring: 0 0 0 3px rgba(247, 116, 40, .24);
 }
 
 :root[data-theme="light"] {
-    --bg:        #F2F3F6;
+    --bg:        #F4F7F5;
     --surface:   #FFFFFF;
-    --surface-2: #EDEFF3;
-    --surface-3: #E4E7EC;
-    --border:    #E1E4EA;
-    --border-strong: #CFD4DC;
+    --surface-2: #EEF2EF;
+    --surface-3: #E4EAE6;
+    --border:    #DDE5E0;
+    --border-strong: #C9D3CD;
 
-    --ink:   #15181D;
-    --ink-2: #5B6472;
-    --ink-3: #8A93A1;
+    --ink:   #17221E;
+    --ink-2: #46534D;
+    --ink-3: #7B857F;
     --on-accent: #FFFFFF;
 
-    --accent:      #E4611C;
-    --accent-hover:#CC5415;
-    --accent-soft: #FDEDE4;
-    --accent-line: #F5C3A6;
+    --accent:      #F77428;
+    --accent-hover:#D95C11;
+    --accent-soft: #FEEEE3;
+    --accent-line: #FBC7A6;
 
-    --ok:        #12874A;
-    --ok-soft:   #E3F5EA;
+    --ok:        #00875D;
+    --ok-soft:   #E0F2EA;
     --warn:      #A96A00;
     --warn-soft: #FBF0DC;
     --info:      #2C5FD0;
@@ -193,7 +215,7 @@
     --s-ready:     #A96A00;
     --s-taken:     #2C5FD0;
     --s-transit:   #6141C4;
-    --s-delivered: #12874A;
+    --s-delivered: #00875D;
     --s-cancel:    #C4362D;
 
     --shadow-sm: 0 1px 2px rgba(16, 20, 27, .05);

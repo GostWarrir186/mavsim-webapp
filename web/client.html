@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mavsimi Rason</title>
+<title>Mavsim Rason</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="theme.css?v=2">
+<link rel="stylesheet" href="theme.css?v=3">
 <script>
 // Тема: явный выбор Telegram важнее системной; палитра — в theme.css
 (function () {
@@ -71,7 +71,7 @@
         <div class="row" style="padding-bottom:10px">
             <span class="glyph"><svg class="ic"><use href="#i-package"></use></svg></span>
             <div class="spacer">
-                <h1>Mavsimi Rason</h1>
+                <h1>Mavsim Rason</h1>
                 <div class="sub" data-i18n="brand-sub">Доставка по Таджикистану</div>
             </div>
             <div class="lang">
@@ -167,7 +167,7 @@
             </div>
             <div class="field">
                 <label class="label" for="weight" data-i18n="lbl-weight">Вес, кг</label>
-                <input class="input mono" type="number" id="weight" step="0.1" min="0.1" max="10" value="1" oninput="calculatePrice()">
+                <input class="input mono" type="number" id="weight" step="0.1" min="0.1" max="30" value="1" oninput="calculatePrice()">
             </div>
             <div class="field">
                 <span class="label" data-i18n="lbl-dims">Габариты, см</span>
@@ -191,8 +191,9 @@
             <div class="price" id="price-box">
                 <svg class="ic" style="color:var(--accent)"><use href="#i-wallet"></use></svg>
                 <span class="p-label" data-i18n="price-label">Стоимость доставки</span>
-                <span class="p-value mono" id="price-value">20.80 TJS</span>
+                <span class="p-value mono" id="price-value">20.00 TJS</span>
             </div>
+            <div class="hint" id="price-eta" style="font-size:12.5px;margin-top:6px"></div>
         </section>
 
         <button class="btn btn-primary btn-block" id="submit-btn" disabled onclick="requestConfirm()">
@@ -292,11 +293,33 @@
         return d.innerHTML;
     }
 
-    var CITIES = ['Душанбе', 'Худжанд', 'Бохтар', 'Хорог', 'РРП', 'Хатлонская область', 'Согдийская область', 'ГБАО'];
-    var CITY_SHORT = { 'Хатлонская область': 'Хатлон', 'Согдийская область': 'Согд' };
+    // Сетка тарифов — копия client_bot.DIRECTIONS (там считается настоящая цена,
+    // здесь только показ). Тариф от Душанбе до пункта и обратно одинаковый:
+    // до 5 кг — base, сверх — per_kg за каждый начатый килограмм.
+    var TARIFF_GROUPS = [
+        ['Душанбе', 20, 3, 'eta-day', ['Душанбе']],
+        ['Хатлон', 30, 5, 'eta-1-2', ['Бохтар', 'Куляб', 'Дангара', 'Фархор']],
+        ['Хатлон', 50, 5, 'eta-2-3', ['Хатлон — другие направления']],
+        ['РРП', 30, 5, 'eta-1-2', ['РРП — стандартные направления']],
+        ['РРП', 40, 5, 'eta-3-4', ['Сангвор', 'Точикобод', 'Джиргатол', 'Тавильдара']],
+        ['Согд', 30, 5, 'eta-1-2', ['Худжанд']],
+        ['Согд', 50, 5, 'eta-2-3', ['Согд — другие направления']],
+        ['Согд', 60, 5, 'eta-2-3', ['Зарафшон', 'Мастчох', 'Пенджикент']],
+        ['ГБАО', 50, 5, 'eta-2-4', ['Хорог']],
+        ['ГБАО', 70, 5, 'eta-to-4', ['Районы возле Хорога']],
+        ['ГБАО', 100, 5, 'eta-5plus', ['Ишкошим', 'Мургоб']]
+    ];
+    var BASE_WEIGHT = 5, MAX_WEIGHT = 30, MAX_DIMS = [50, 50, 30];
+    var DIRECTIONS = {}, REGIONS = [];
+    TARIFF_GROUPS.forEach(function (g) {
+        if (REGIONS.indexOf(g[0]) === -1) REGIONS.push(g[0]);
+        g[4].forEach(function (n) { DIRECTIONS[n] = { region: g[0], base: g[1], perKg: g[2], eta: g[3] }; });
+    });
     ['city_pickup', 'city_delivery'].forEach(function (id) {
-        document.getElementById(id).innerHTML = CITIES.map(function (c) {
-            return '<option value="' + esc(c) + '">' + esc(CITY_SHORT[c] || c) + '</option>';
+        document.getElementById(id).innerHTML = REGIONS.map(function (r) {
+            var opts = Object.keys(DIRECTIONS).filter(function (n) { return DIRECTIONS[n].region === r; })
+                .map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+            return r === 'Душанбе' ? opts : '<optgroup label="' + esc(r) + '">' + opts + '</optgroup>';
         }).join('');
     });
 
@@ -317,7 +340,9 @@
             'sec-parcel': 'Параметры посылки',
             'lbl-weight': 'Вес, кг', 'lbl-dims': 'Габариты, см',
             'dim-l': 'Длина', 'dim-w': 'Ширина', 'dim-h': 'Высота',
-            'large-warn': 'Отправление крупногабаритное — оформление только через сайт.',
+            'large-warn': 'Больше 30 кг или 50×50×30 см — оформление через сайт.',
+            'eta-label': 'Срок доставки:', 'eta-day': 'в течение дня', 'eta-1-2': '1–2 дня', 'eta-2-3': '2–3 дня',
+            'eta-3-4': '3–4 дня', 'eta-2-4': '2–4 дня', 'eta-to-4': 'до 4 дней', 'eta-5plus': 'от 5 дней',
             'price-label': 'Стоимость доставки',
             'btn-submit': 'Оформить доставку', 'btn-large': 'Быстрый запрос на сайте',
             'sec-profile': 'Мои данные', 'lbl-phone': 'Телефон',
@@ -347,7 +372,9 @@
             'sec-parcel': 'Хусусиятҳои бор',
             'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андозаҳо, см',
             'dim-l': 'Дарозӣ', 'dim-w': 'Паҳнӣ', 'dim-h': 'Баландӣ',
-            'large-warn': 'Бори калонҳаҷм — танҳо тавассути сайт.',
+            'large-warn': 'Зиёда аз 30 кг ё 50×50×30 см — тавассути сайт.',
+            'eta-label': 'Мӯҳлати расонидан:', 'eta-day': 'дар давоми рӯз', 'eta-1-2': '1–2 рӯз', 'eta-2-3': '2–3 рӯз',
+            'eta-3-4': '3–4 рӯз', 'eta-2-4': '2–4 рӯз', 'eta-to-4': 'то 4 рӯз', 'eta-5plus': 'аз 5 рӯз',
             'price-label': 'Нархи расонидан',
             'btn-submit': 'Ороиши дархост', 'btn-large': 'Дархости фаврӣ дар сайт',
             'sec-profile': 'Маълумоти ман', 'lbl-phone': 'Телефон',
@@ -421,10 +448,15 @@
         }, 1200);
     }
 
-    function getZone(city) {
-        if (['Душанбе', 'Худжанд', 'Бохтар'].indexOf(city) !== -1) return 1;
-        if (['Хорог', 'РРП', 'Хатлонская область'].indexOf(city) !== -1) return 2;
-        return 3;
+    function routeTariff(from, to) {
+        var a = DIRECTIONS[from], b = DIRECTIONS[to];
+        return a.base >= b.base ? a : b;
+    }
+
+    function fitsDims(sides) {
+        var s = sides.slice().sort(function (x, y) { return y - x; });
+        var m = MAX_DIMS.slice().sort(function (x, y) { return y - x; });
+        return s[0] <= m[0] && s[1] <= m[1] && s[2] <= m[2];
     }
 
     function calculatePrice() {
@@ -432,27 +464,21 @@
         var l = parseInt(document.getElementById('size_l').value, 10) || 0;
         var sw = parseInt(document.getElementById('size_w').value, 10) || 0;
         var h = parseInt(document.getElementById('size_h').value, 10) || 0;
-        var isLarge = w > 10 || Math.max(l, sw, h) > 35 || (l + sw + h) > 65;
+        var isLarge = w > MAX_WEIGHT || !fitsDims([l, sw, h]);
 
         document.getElementById('large-warning').style.display = isLarge ? '' : 'none';
         document.getElementById('price-box').style.display = isLarge ? 'none' : '';
         document.getElementById('submit-btn').style.display = isLarge ? 'none' : '';
         document.getElementById('large-submit-btn').style.display = isLarge ? '' : 'none';
+        document.getElementById('price-eta').style.display = isLarge ? 'none' : '';
         if (isLarge) return { isLarge: true };
 
-        var zone = String(Math.max(
-            getZone(document.getElementById('city_pickup').value),
-            getZone(document.getElementById('city_delivery').value)
-        ));
-        // Только для показа: цену заказа считает бот (client_bot.TARIFFS) и
-        // присланную отсюда не принимает. Меняешь тарифы — поменяй в обоих местах.
-        var tarifs = {
-            '1': { pvz: 20.80, door: 31.20 },
-            '2': { pvz: 27.30, door: 35.10 },
-            '3': { pvz: 31.20, door: 37.70 }
-        };
-        var price = tarifs[zone][dtype];
+        var tr = routeTariff(document.getElementById('city_pickup').value,
+                             document.getElementById('city_delivery').value);
+        var extraKg = Math.max(0, Math.ceil(Math.round((w - BASE_WEIGHT) * 1000) / 1000));
+        var price = tr.base + extraKg * tr.perKg;
         document.getElementById('price-value').textContent = price.toFixed(2) + ' TJS';
+        document.getElementById('price-eta').textContent = t('eta-label') + ' ' + t(tr.eta);
         validateForm();
         return { isLarge: false, price: price };
     }
