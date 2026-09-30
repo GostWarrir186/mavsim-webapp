@@ -100,7 +100,7 @@
                 <div class="card-title" data-i18n="sec-route">Маршрут и доставка</div>
             </div>
 
-            <div class="field">
+            <div class="field" id="grp-dtype">
                 <span class="label" data-i18n="lbl-dtype">Тип доставки</span>
                 <div class="choice">
                     <button type="button" id="dt-pvz" aria-pressed="true" onclick="setDtype('pvz')">
@@ -256,7 +256,10 @@
     var currentLang = 'ru';
     var verifiedFio = 'Пользователь';
     var verifiedPhone = '+992920000000';
-    var dtype = 'pvz';
+    // ПВЗ пока скрыт (2026-09-30): адресов пунктов нет, в Relog уходило
+    // «Душанбе, ПВЗ». Код оставлен — вернуть: PVZ_ENABLED = true.
+    var PVZ_ENABLED = false;
+    var dtype = PVZ_ENABLED ? 'pvz' : 'door';
 
     var userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (userObj) {
@@ -643,7 +646,9 @@
     }
 
     initProfile();
-    setDtype('pvz');
+    // Без ПВЗ выбирать не из чего — прячем весь «Тип доставки»
+    document.getElementById('grp-dtype').style.display = PVZ_ENABLED ? '' : 'none';
+    setDtype(dtype);
     setLang(localStorage.getItem('lang') || 'ru', false);
 </script>
 </body>
