@@ -560,39 +560,19 @@ p, span, div, h1, h2, h3, td, th, label, button { overflow-wrap: anywhere; }
 }
 
 /* ═════════════════════════════════════════════════════════════════════════
-   Айдентика сайта rason.mavsim.com (с 2026-09-27): логотип, чакан, розетки.
-   Файлы — копии из «Rason Web/assets/img»; поменяли там — скопируйте сюда.
-   Декор дозированный, как на сайте: розетка — фон (opacity .05), а не
-   картинка; чакан — одна узкая полоса под шапкой.
+   Айдентика сайта rason.mavsim.com: логотип и чакан — только в форме клиента
+   (body.brand). У курьера и менеджера орнаментов нет, фоновой розетки нет
+   нигде (решение 2026-09-30). Файлы — копии из «Rason Web/assets/img».
    ═════════════════════════════════════════════════════════════════════════ */
 
 /* Полный логотип — в шапке формы клиента */
 .brand-logo { display: block; height: 36px; width: auto; flex: none; }
 
-/* Плитка в шапке остальных страниц — розетка чакана вместо иконки */
-.glyph {
-    background: url(img/ornament-rosette.png) no-repeat center / contain;
-    border-radius: 50%;
-}
-.glyph .ic { display: none; }
-
 /* Чакан — полоса под шапкой, та же, что отбивает форму заявки на сайте */
-.topbar::after {
+.brand .topbar::after {
     content: ''; display: block; height: 10px;
     background: url(img/ornament-line.svg?v=2) repeat-x center / auto 10px;
 }
-
-/* Бледная розетка на фоне, медленно вращается — оборот за три минуты, как
-   на сайте. z-index -1: под карточками, над фоном страницы. */
-body::before {
-    content: ''; position: fixed; z-index: -1; pointer-events: none;
-    right: -110px; top: 90px; width: 320px; aspect-ratio: 1;
-    background: url(img/ornament-rosette.png) no-repeat center / contain;
-    opacity: .05;
-    animation: rosette-spin 180s linear infinite;
-}
-@keyframes rosette-spin { to { rotate: 360deg; } }
-@media (prefers-reduced-motion: reduce) { body::before { animation: none; } }
 
 /* Кнопки — «таблетки», как на сайте */
 .btn { border-radius: 999px; }
