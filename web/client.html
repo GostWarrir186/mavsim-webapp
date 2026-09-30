@@ -61,6 +61,36 @@
     .order-line { display: flex; align-items: center; gap: 7px; font-size: 13.5px; padding: 3px 0; min-width: 0; }
     .order-line .ic { color: var(--ink-3); }
     .order-line b { font-weight: 650; }
+
+    /* ── точка на карте (OSM + Leaflet, грузится при первом открытии) ── */
+    .map-btn { margin-top: 7px; }
+    .map-btn.set { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+    .map-sheet {
+        position: fixed; inset: 0; z-index: 100; display: none; flex-direction: column;
+        background: var(--bg);
+    }
+    .map-sheet.on { display: flex; }
+    .map-wrap { position: relative; flex: 1; min-height: 0; }
+    #map { position: absolute; inset: 0; }
+    /* Метка стоит в центре, двигается карта — точнее, чем тащить маркер пальцем */
+    .map-pin {
+        position: absolute; left: 50%; top: 50%; z-index: 500; pointer-events: none;
+        width: 36px; height: 36px; margin: -36px 0 0 -18px; color: var(--accent);
+        filter: drop-shadow(0 2px 3px rgba(0,0,0,.35));
+    }
+    .map-close {
+        position: absolute; top: 12px; right: 12px; z-index: 600;
+        width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+        background: var(--surface); color: var(--ink); display: grid; place-items: center; cursor: pointer;
+    }
+    .map-bar {
+        padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+        background: var(--surface); border-top: 1px solid var(--border);
+    }
+    .map-addr { font-size: 14px; font-weight: 600; min-height: 20px; margin-bottom: 4px; }
+    .map-hint { font-size: 12px; margin-bottom: 10px; }
+    .map-actions { display: flex; gap: 10px; }
+    .map-actions > .btn { flex: 1; }
 </style>
 </head>
 <body class="brand">
@@ -131,12 +161,18 @@
             <div class="field">
                 <label class="label" for="address_pickup" data-i18n="lbl-addr-from">Адрес забора</label>
                 <input class="input" type="text" id="address_pickup" oninput="validateForm()">
+                <button type="button" class="btn btn-sm btn-accent-outline map-btn" id="pt-from-btn" onclick="openMap('from')">
+                    <svg class="ic ic-sm"><use href="#i-pin"></use></svg><span></span>
+                </button>
                 <span class="hint" id="prefill-notice" style="display:none;font-size:12px" data-i18n="prefill">Адрес подставлен из профиля</span>
             </div>
 
             <div class="field" id="grp-addr-to" style="display:none">
                 <label class="label" for="address_delivery" data-i18n="lbl-addr-to">Адрес доставки</label>
                 <input class="input" type="text" id="address_delivery" oninput="validateForm()">
+                <button type="button" class="btn btn-sm btn-accent-outline map-btn" id="pt-to-btn" onclick="openMap('to')">
+                    <svg class="ic ic-sm"><use href="#i-pin"></use></svg><span></span>
+                </button>
             </div>
 
             <div class="field" id="grp-comment" style="display:none">
@@ -246,6 +282,26 @@
     </div>
 </main>
 
+<div class="map-sheet" id="map-sheet" role="dialog" aria-modal="true">
+    <div class="map-wrap">
+        <div id="map"></div>
+        <svg class="map-pin" viewBox="0 0 24 24" fill="currentColor" stroke="#fff" stroke-width="1.5"><path d="M12 22s8-6 8-12a8 8 0 0 0-16 0c0 6 8 12 8 12z"/><circle cx="12" cy="10" r="3" fill="#fff" stroke="none"/></svg>
+        <button type="button" class="map-close" onclick="closeMap()" aria-label="✕"><svg class="ic"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="map-bar">
+        <div class="map-addr" id="map-addr"></div>
+        <div class="hint map-hint" id="map-hint"></div>
+        <div class="map-actions">
+            <button type="button" class="btn btn-outline" id="map-locate" onclick="locateMe()">
+                <svg class="ic"><use href="#i-pin"></use></svg><span id="map-locate-t"></span>
+            </button>
+            <button type="button" class="btn btn-primary" onclick="confirmMap()">
+                <svg class="ic"><use href="#i-check"></use></svg><span id="map-done-t"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
     var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
         ready: function () {}, expand: function () {}, sendData: function () {}, close: function () {},
@@ -338,6 +394,11 @@
             'lbl-addr-from': 'Адрес забора', 'lbl-addr-to': 'Адрес доставки',
             'prefill': 'Адрес подставлен из профиля',
             'lbl-comment': 'Комментарий курьеру',
+            'map-pick': 'Указать на карте', 'map-set': 'Точка на карте выбрана — изменить',
+            'map-hint': 'Двигайте карту, чтобы метка встала на дом',
+            'map-locate': 'Я здесь', 'map-done': 'Готово',
+            'map-no-geo': 'Не удалось определить местоположение — поставьте метку вручную',
+            'map-fail': 'Карта не загрузилась. Проверьте интернет или введите адрес текстом',
             'sec-receiver': 'Получатель',
             'lbl-r-name': 'ФИО получателя', 'lbl-r-phone': 'Телефон получателя',
             'sec-parcel': 'Параметры посылки',
@@ -370,6 +431,11 @@
             'lbl-addr-from': 'Суроғаи гирифтан', 'lbl-addr-to': 'Суроғаи расонидан',
             'prefill': 'Суроға аз профил гузошта шуд',
             'lbl-comment': 'Шарҳ барои курьер',
+            'map-pick': 'Дар харита нишон додан', 'map-set': 'Нуқта дар харита интихоб шуд — тағйир додан',
+            'map-hint': 'Харитаро ҳаракат диҳед, то аломат болои хона истад',
+            'map-locate': 'Ман дар инҷо', 'map-done': 'Тайёр',
+            'map-no-geo': 'Ҷойгиршавиро муайян кардан нашуд — аломатро дастӣ гузоред',
+            'map-fail': 'Харита бор нашуд. Интернетро санҷед ё суроғаро бо матн нависед',
             'sec-receiver': 'Қабулкунанда',
             'lbl-r-name': 'Ному насаби қабулкунанда', 'lbl-r-phone': 'Телефони қабулкунанда',
             'sec-parcel': 'Хусусиятҳои бор',
@@ -403,6 +469,9 @@
             if (v) el.textContent = v;
         });
         calculatePrice();
+        updatePtButtons();
+        document.getElementById('map-locate-t').textContent = t('map-locate');
+        document.getElementById('map-done-t').textContent = t('map-done');
         if (document.getElementById('pane-profile').classList.contains('on')) renderHistory();
         if (persist !== false) localStorage.setItem('lang', currentLang);
     }
@@ -436,6 +505,135 @@
             document.getElementById('prefill-notice').style.display = '';
         }
     }
+
+    // ── Точка на карте ──
+    // Координаты — главное: Relog и курьер едут по ним, а не по тексту адреса
+    // (в Душанбе адреса строкой находятся плохо). Адрес из OSM (Nominatim) —
+    // только подсказка в поле, клиент может его поправить. Переход на 2ГИС —
+    // заменить слой тайлов и reverseGeocode(), остальное не трогать.
+    var pts = { from: null, to: null };   // {lat, lon}
+    var autoAddr = { from: '', to: '' };  // что подставили сами — чтобы не затереть ввод клиента
+    var map = null, mapFor = null, geoTimer = null, geoSeq = 0, lastGeo = null;
+    var DUSHANBE = [38.5598, 68.7870];
+    var TJ_BOX = [36.6, 67.3, 41.1, 75.2];  // тот же прямоугольник проверяет бот
+
+    function updatePtButtons() {
+        ['from', 'to'].forEach(function (k) {
+            var b = document.getElementById('pt-' + k + '-btn');
+            b.classList.toggle('set', !!pts[k]);
+            b.querySelector('span').textContent = t(pts[k] ? 'map-set' : 'map-pick');
+        });
+    }
+
+    function loadLeaflet(cb) {
+        if (window.L) return cb(true);
+        var css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+        // Скрипт — после стилей, иначе карта успевает собраться без них и тайлы разъезжаются
+        css.onload = css.onerror = function () {
+            var js = document.createElement('script');
+            js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+            js.onload = function () { cb(true); };
+            js.onerror = function () { cb(false); };
+            document.head.appendChild(js);
+        };
+        document.head.appendChild(css);
+    }
+
+    function openMap(which) {
+        mapFor = which;
+        document.getElementById('map-sheet').classList.add('on');
+        document.getElementById('map-addr').textContent = '';
+        document.getElementById('map-hint').textContent = t('map-hint');
+        loadLeaflet(function (ok) {
+            if (!ok) { document.getElementById('map-hint').textContent = t('map-fail'); return; }
+            if (!map) {
+                map = L.map('map', { zoomControl: false, attributionControl: true }).setView(DUSHANBE, 13);
+                L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19, attribution: '© OpenStreetMap'
+                }).addTo(map);
+                map.attributionControl.setPrefix(false);
+                map.on('moveend', function () { if (mapFor) scheduleGeocode(); });
+            }
+            map.invalidateSize();
+            var p = pts[which];
+            if (p) { map.setView([p.lat, p.lon], 17); return; }
+            var city = document.getElementById(which === 'from' ? 'city_pickup' : 'city_delivery').value;
+            if (city === 'Душанбе') { map.setView(DUSHANBE, 13); scheduleGeocode(); return; }
+            // Город — через тот же Nominatim; «Хатлон — другие направления» не
+            // найдётся, тогда остаёмся на Душанбе
+            fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tj&q=' +
+                  encodeURIComponent(city))
+                .then(function (r) { return r.json(); })
+                .then(function (a) { map.setView(a && a[0] ? [+a[0].lat, +a[0].lon] : DUSHANBE, a && a[0] ? 14 : 13); })
+                .catch(function () { map.setView(DUSHANBE, 13); });
+        });
+    }
+
+    function closeMap() {
+        mapFor = null;
+        document.getElementById('map-sheet').classList.remove('on');
+    }
+
+    function scheduleGeocode() {
+        clearTimeout(geoTimer);
+        document.getElementById('map-addr').textContent = '…';
+        // Nominatim просит не чаще раза в секунду — ждём, пока карту отпустят
+        geoTimer = setTimeout(reverseGeocode, 900);
+    }
+
+    function reverseGeocode() {
+        var c = map.getCenter(), seq = ++geoSeq;
+        lastGeo = null;
+        fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ru&lat=' +
+              c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6))
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (seq !== geoSeq) return;
+                var a = j.address || {};
+                var street = a.road || a.pedestrian || a.neighbourhood || a.suburb || '';
+                var line = [street, a.house_number].filter(Boolean).join(', ');
+                if (!line && j.display_name) line = j.display_name.split(',').slice(0, 2).join(',');
+                lastGeo = line;
+                document.getElementById('map-addr').textContent = line || '—';
+            })
+            .catch(function () { if (seq === geoSeq) document.getElementById('map-addr').textContent = '—'; });
+    }
+
+    function locateMe() {
+        function go(lat, lon) { if (map) map.setView([lat, lon], 17); }
+        function fail() { document.getElementById('map-hint').textContent = t('map-no-geo'); }
+        function browser() {
+            if (!navigator.geolocation) return fail();
+            navigator.geolocation.getCurrentPosition(function (p) { go(p.coords.latitude, p.coords.longitude); },
+                fail, { enableHighAccuracy: true, timeout: 10000 });
+        }
+        // Геолокация Telegram (Bot API 8.0+) спрашивает разрешение сама; в старых
+        // клиентах — обычная браузерная
+        var lm = tg.LocationManager;
+        if (lm && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0')) {
+            lm.init(function () {
+                if (!lm.isLocationAvailable) return browser();
+                lm.getLocation(function (d) { d ? go(d.latitude, d.longitude) : fail(); });
+            });
+        } else browser();
+    }
+
+    function confirmMap() {
+        if (!map || !mapFor) return closeMap();
+        var c = map.getCenter();
+        if (c.lat < TJ_BOX[0] || c.lat > TJ_BOX[2] || c.lng < TJ_BOX[1] || c.lng > TJ_BOX[3]) return closeMap();
+        pts[mapFor] = { lat: +c.lat.toFixed(6), lon: +c.lng.toFixed(6) };
+        var inp = document.getElementById(mapFor === 'from' ? 'address_pickup' : 'address_delivery');
+        var cur = inp.value.trim();
+        if (lastGeo && (!cur || cur === autoAddr[mapFor])) { inp.value = lastGeo; autoAddr[mapFor] = lastGeo; }
+        updatePtButtons();
+        closeMap();
+        validateForm();
+    }
+
+    function ptStr(p) { return p ? p.lat + ',' + p.lon : ''; }
 
     function saveProfile() {
         var fio = document.getElementById('prof_fio').value.trim();
@@ -540,7 +738,9 @@
             sizes: document.getElementById('size_l').value + 'x' +
                    document.getElementById('size_w').value + 'x' +
                    document.getElementById('size_h').value,
-            price: res.price.toFixed(2)  // справочно: сервер считает цену сам
+            price: res.price.toFixed(2),  // справочно: сервер считает цену сам
+            pt_from: ptStr(pts.from),
+            pt_to: dtype === 'door' ? ptStr(pts.to) : ''
         };
 
         var hist = JSON.parse(localStorage.getItem('user_orders') || '[]');
