@@ -517,9 +517,14 @@
     var DUSHANBE = [38.5598, 68.7870];
     var TJ_BOX = [36.6, 67.3, 41.1, 75.2];  // тот же прямоугольник проверяет бот
 
+    // Кнопки «Указать на карте» пока скрыты (2026-10-01, решение пользователя):
+    // код карты оставлен — вернуть: MAP_ENABLED = true
+    var MAP_ENABLED = false;
+
     function updatePtButtons() {
         ['from', 'to'].forEach(function (k) {
             var b = document.getElementById('pt-' + k + '-btn');
+            b.style.display = MAP_ENABLED ? '' : 'none';
             b.classList.toggle('set', !!pts[k]);
             b.querySelector('span').textContent = t(pts[k] ? 'map-set' : 'map-pick');
         });
