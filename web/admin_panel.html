@@ -507,10 +507,17 @@
         });
     }
 
+    // Подпись Telegram есть только у WebApp из инлайн-кнопки; панель открывается
+    // кнопкой клавиатуры — там вместо неё пропуск менеджера ?k= от бота.
+    var PANEL_KEY = new URLSearchParams(window.location.search).get('k') || '';
     function refreshLive() {
-        if (!tg.initData) return;
+        var signed = !!(tg.initData && tg.initData.indexOf('hash=') !== -1);
+        if (!signed && !PANEL_KEY) return;
+        var headers = {};
+        if (signed) headers['X-Tg-Init-Data'] = tg.initData;
+        if (PANEL_KEY) headers['X-Panel-Key'] = PANEL_KEY;
         if (sheetBg.classList.contains('on')) return;   // открыто «Управление» — не трогаем под рукой
-        fetch(PANEL_API, { headers: { 'X-Tg-Init-Data': tg.initData }, cache: 'no-store' })
+        fetch(PANEL_API, { headers: headers, cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (j) {
                 if (!j || !j.ok || !j.data || sheetBg.classList.contains('on')) return;
