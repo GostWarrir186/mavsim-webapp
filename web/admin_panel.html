@@ -533,11 +533,17 @@
             .catch(function () {});   // сервер недоступен — остаёмся на снимке
     }
 
-    if (!DATA) {
-        app.innerHTML = '<main class="container" style="padding-top:40px">' +
-            empty('link', 'Нет данных. Откройте панель через бота.') + '</main>';
-    } else {
+    function showEmpty(text) {
+        app.innerHTML = '<main class="container" style="padding-top:40px">' + empty('link', text) + '</main>';
+    }
+    if (DATA) {
         render();
+    } else if (PANEL_KEY || (tg.initData && tg.initData.indexOf('hash=') !== -1)) {
+        showEmpty('Загружаем данные…');
+        // сервер не ответил за 8 с — говорим честно, а не держим «загрузку»
+        setTimeout(function () { if (!DATA) showEmpty('Нет связи с сервером. Нажмите /start в боте и откройте панель снова.'); }, 8000);
+    } else {
+        showEmpty('Нет данных. Откройте панель через бота.');
     }
     refreshLive();
     setInterval(refreshLive, 30000);
