@@ -490,12 +490,50 @@
 
     sheetBg.addEventListener('click', function (e) { if (e.target === sheetBg) closeSheet(); });
 
+    // ── живые данные ──
+    // ?d= в ссылке — снимок на момент отправки сообщения панели: старая кнопка
+    // открывала устаревшее (0 заказов, 4 курьера, когда их уже 10). Поэтому
+    // сразу показываем снимок, а следом берём свежие данные у бота
+    // (webapi.py, /api/panel, только для менеджеров) и обновляем каждые 30 с.
+    var PANEL_API = 'https://rason.mavsim.com/api/panel';
+    var lastJson = DATA ? JSON.stringify(DATA) : '';
+
+    function applyTab() {
+        app.querySelectorAll('[data-tab]').forEach(function (x) {
+            x.setAttribute('aria-selected', String(+x.dataset.tab === activeTab));
+        });
+        app.querySelectorAll('[data-pane]').forEach(function (p) {
+            p.classList.toggle('on', +p.dataset.pane === activeTab);
+        });
+    }
+
+    function refreshLive() {
+        if (!tg.initData) return;
+        if (sheetBg.classList.contains('on')) return;   // открыто «Управление» — не трогаем под рукой
+        fetch(PANEL_API, { headers: { 'X-Tg-Init-Data': tg.initData }, cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) {
+                if (!j || !j.ok || !j.data || sheetBg.classList.contains('on')) return;
+                var s = JSON.stringify(j.data);
+                if (s === lastJson) return;
+                lastJson = s;
+                DATA = j.data;
+                var y = window.scrollY;
+                render();
+                applyTab();
+                window.scrollTo(0, y);
+            })
+            .catch(function () {});   // сервер недоступен — остаёмся на снимке
+    }
+
     if (!DATA) {
         app.innerHTML = '<main class="container" style="padding-top:40px">' +
             empty('link', 'Нет данных. Откройте панель через бота.') + '</main>';
     } else {
         render();
     }
+    refreshLive();
+    setInterval(refreshLive, 30000);
 </script>
 </body>
 </html>
