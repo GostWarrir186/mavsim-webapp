@@ -430,7 +430,7 @@
             <div class="sheet-hint" id="sheet-hint"></div>
 
             <div class="route-box">
-                <label class="pt-row pt-from active" id="row-from" onclick="rowClick(event, 'from')">
+                <div class="pt-row pt-from active" id="row-from" onclick="rowClick(event, 'from')">
                     <span class="pt-text">
                         <span class="pt-cap" data-i18n="cap-from">Откуда забрать</span>
                         <input class="pt-input" id="addr-from" data-i18n-ph="ph-from" placeholder="Улица" onfocus="setActive('from')">
@@ -441,8 +441,8 @@
                                 <input class="pt-house" id="porch-from" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
                     </span>
-                </label>
-                <label class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
+                </div>
+                <div class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
                     <span class="pt-text">
                         <span class="pt-cap" data-i18n="cap-to">Куда доставить</span>
                         <input class="pt-input" id="addr-to" data-i18n-ph="ph-to" placeholder="Куда везём?" onfocus="setActive('to')">
@@ -453,7 +453,7 @@
                                 <input class="pt-house" id="porch-to" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
                     </span>
-                </label>
+                </div>
             </div>
 
             <div class="sec tight">
@@ -827,14 +827,14 @@
         if (el.matches && el.matches('input, select, textarea') && !el.classList.contains('pt-input')) releaseActive();
     });
 
-    var geoTimer = null, geoSeq = 0, suppress = false;
+    var geoTimer = {}, geoSeq = { from: 0, to: 0 }, suppress = false;
     function geocodeSoon(k, c) {
         // Старую улицу не стираем, пока не пришла новая — только приглушаем
         var el = document.getElementById('addr-' + k);
         if (!el.value.trim()) el.value = '…';
         el.classList.add('loading');
-        clearTimeout(geoTimer);
-        geoTimer = setTimeout(function () { reverse(k, c); }, 700);
+        clearTimeout(geoTimer[k]);
+        geoTimer[k] = setTimeout(function () { reverse(k, c); }, 700);
     }
     map.on('movestart', function () { if (active) document.getElementById('pin').classList.add('lift'); });
     map.on('moveend', function () {
@@ -851,11 +851,11 @@
     });
 
     function reverse(k, c) {
-        var seq = ++geoSeq;
+        var seq = ++geoSeq[k];
         fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ru&lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6))
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (seq !== geoSeq) return;
+                if (seq !== geoSeq[k]) return;
                 document.getElementById('addr-' + k).classList.remove('loading');
                 var a = j.address || {};
                 // Только улица: номер дома из OSM часто неверный — его пишет клиент
@@ -868,7 +868,7 @@
                 if (DIR[city]) { document.getElementById(k === 'from' ? 'city_from' : 'city_to').value = city; calc(); }
             })
             .catch(function () {
-                if (seq !== geoSeq) return;
+                if (seq !== geoSeq[k]) return;
                 var el = document.getElementById('addr-' + k);
                 el.classList.remove('loading');
                 if (el.value === '…') el.value = '';
@@ -884,7 +884,7 @@
         fetch(API + '?lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6), { headers: { 'X-Tg-Init-Data': tg.initData } })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (j) {
-                if (!j || !j.address || seq !== geoSeq) return;
+                if (!j || !j.address || seq !== geoSeq[k]) return;
                 document.getElementById('addr-' + k).value = j.address.street;
                 var h = document.getElementById('house-' + k);
                 if (!h.value.trim()) h.value = j.address.house;
@@ -918,9 +918,10 @@
                 (need[i] === 'r_phone' && el.value.replace(/\D/g, '').length !== 9);
             if (bad) {
                 (el.closest('.pt-box, .tel') || el).classList.add('miss');
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                var sc = document.getElementById('scroller');
+                var y = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+                sc.scrollTo({ top: Math.max(0, y - sc.clientHeight / 2), behavior: 'smooth' });
                 if (/^addr-/.test(need[i])) setActive(need[i].slice(-2) === 'to' ? 'to' : 'from');
-                setTimeout(function () { el.focus(); }, 350);
                 toast(t(need[i].indexOf('house') === 0 ? 'miss-house' : 'miss'));
                 return;
             }
@@ -1217,6 +1218,7 @@
         }
     }
     window.addEventListener('resize', fitPeek);
+    document.getElementById('phone').addEventListener('scroll', function () { this.scrollTop = 0; });
     // iOS при клавиатуре сдвигает страницу вверх — после неё возвращаем на место
     document.addEventListener('focusout', function () {
         setTimeout(function () { if (!typing()) { window.scrollTo(0, 0); fitPeek(); } }, 120);
