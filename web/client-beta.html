@@ -13,7 +13,9 @@
     /* «Телефон»: на компьютере — колонка 420px по центру, в Telegram — весь экран.
        transform делает её точкой отсчёта для absolute-слоёв. */
     .phone {
-        position: relative; height: 100dvh; width: 100%; max-width: 430px; margin: 0 auto;
+        /* В Telegram — «стабильная» высота: она не скачет, пока открывается
+           клавиатура или тянется окно, иначе карта и шторка дёргались */
+        position: relative; height: var(--tg-viewport-stable-height, 100dvh); width: 100%; max-width: 430px; margin: 0 auto;
         overflow: hidden; background: var(--surface); transform: translateZ(0);
         box-shadow: 0 0 40px rgba(0,0,0,.15);
     }
@@ -107,6 +109,7 @@
         font: inherit; font-size: 15.5px; font-weight: 650; color: var(--ink);
         text-overflow: ellipsis;
     }
+    .pt-input.loading { opacity: .45; }
     .pt-input::placeholder { color: var(--ink-3); font-weight: 600; }
     /* Дом — руками: номера домов в OSM часто врут, а клиент свой номер знает */
     .pt-house {
@@ -592,7 +595,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
     var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
-    if (tg) { tg.ready(); tg.expand(); }
+    if (tg) {
+        tg.ready(); tg.expand();
+        // Свайп вниз по шторке Telegram иначе принимает за «свернуть мини-приложение»
+        try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
+    }
 
     var T = {
         ru: {
@@ -822,7 +829,10 @@
 
     var geoTimer = null, geoSeq = 0, suppress = false;
     function geocodeSoon(k, c) {
-        document.getElementById('addr-' + k).value = '…';
+        // Старую улицу не стираем, пока не пришла новая — только приглушаем
+        var el = document.getElementById('addr-' + k);
+        if (!el.value.trim()) el.value = '…';
+        el.classList.add('loading');
         clearTimeout(geoTimer);
         geoTimer = setTimeout(function () { reverse(k, c); }, 700);
     }
@@ -832,8 +842,9 @@
         if (suppress) { suppress = false; return; }   // перелёт к уже выбранной точке — адрес не трогаем
         if (!active) return;                           // точки закреплены — карта просто листается
         var c = pinLatLng(), old = pts[active];
-        // зум вокруг центра даёт тот же центр — адрес заново не спрашиваем
-        if (old && map.distance(old, c) < 2) return;
+        // Зум вокруг центра и подгонка размера окна (Telegram тянет его при свайпах,
+        // центр плывёт на полпикселя) — это не новое место: адрес заново не спрашиваем
+        if (old && map.latLngToContainerPoint(old).distanceTo(map.latLngToContainerPoint(c)) < 6) return;
         pts[active] = [c.lat, c.lng];
         draw();
         geocodeSoon(active, c);
@@ -845,6 +856,7 @@
             .then(function (r) { return r.json(); })
             .then(function (j) {
                 if (seq !== geoSeq) return;
+                document.getElementById('addr-' + k).classList.remove('loading');
                 var a = j.address || {};
                 // Только улица: номер дома из OSM часто неверный — его пишет клиент
                 var line = a.road || a.pedestrian || a.neighbourhood || a.suburb || a.quarter || '';
@@ -855,7 +867,12 @@
                 var city = a.city || a.town || a.village || '';
                 if (DIR[city]) { document.getElementById(k === 'from' ? 'city_from' : 'city_to').value = city; calc(); }
             })
-            .catch(function () { if (seq === geoSeq) document.getElementById('addr-' + k).value = ''; });
+            .catch(function () {
+                if (seq !== geoSeq) return;
+                var el = document.getElementById('addr-' + k);
+                el.classList.remove('loading');
+                if (el.value === '…') el.value = '';
+            });
     }
 
     // Своя база адресов бота: что вписали клиенты и подтвердили курьеры рядом с
@@ -1182,17 +1199,28 @@
     }
 
     // Шторка в свёрнутом виде — ровно до конца блока адресов + кнопка «Заказать»
+    function typing() {
+        var el = document.activeElement;
+        return !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+    }
     function fitPeek() {
+        // Пока открыта клавиатура, окно меняет размер — шторку не пересчитываем
+        if (typing()) return;
         var sheet = document.querySelector('.sheet'), box = document.querySelector('.route-box');
         var h = box.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 14 +
                 document.querySelector('.order-bar').offsetHeight;
         var ph = document.getElementById('phone');
         if (Math.abs((parseFloat(getComputedStyle(ph).getPropertyValue('--peek')) || 0) - h) > 2) {
             ph.style.setProperty('--peek', Math.round(h) + 'px');
-            setTimeout(function () { map.invalidateSize({ pan: false }); }, 0);
+            // pan (по умолчанию) держит центр карты на месте — метка не съезжает с дома
+            setTimeout(function () { map.invalidateSize({ animate: false }); }, 0);
         }
     }
     window.addEventListener('resize', fitPeek);
+    // iOS при клавиатуре сдвигает страницу вверх — после неё возвращаем на место
+    document.addEventListener('focusout', function () {
+        setTimeout(function () { if (!typing()) { window.scrollTo(0, 0); fitPeek(); } }, 120);
+    });
     document.addEventListener('input', function (e) { var el = e.target; if (el.classList) (el.closest('.pt-box, .tel') || el).classList.remove('miss'); });
     document.getElementById('pin').style.setProperty('--pin', COLORS.from);
     setLang(Q.get('lang') === 'tj' ? 'tj' : 'ru');
