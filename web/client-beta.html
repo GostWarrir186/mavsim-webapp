@@ -121,6 +121,16 @@
         text-overflow: ellipsis;
     }
     .pt-input.loading { opacity: .45; }
+    /* Подсказки улиц при вводе */
+    .sugg { margin-top: 6px; border-radius: 12px; background: var(--surface-2); overflow: hidden; }
+    .sugg:empty { display: none; }
+    .sugg button {
+        display: block; width: 100%; text-align: left; border: 0; background: transparent; cursor: pointer;
+        padding: 10px 12px; font: inherit; font-size: 14.5px; font-weight: 650; color: var(--ink);
+    }
+    .sugg button + button { border-top: 1px solid var(--border); }
+    .sugg button span { display: block; font-size: 12px; font-weight: 500; color: var(--ink-3); margin-top: 1px; }
+    .sugg button:active { background: var(--accent-soft); }
     .pt-input::placeholder { color: var(--ink-3); font-weight: 600; }
     /* Дом — руками: номера домов в OSM часто врут, а клиент свой номер знает */
     .pt-house {
@@ -448,7 +458,8 @@
                 <div class="pt-row pt-from active" id="row-from" onclick="rowClick(event, 'from')">
                     <span class="pt-text">
                         <span class="pt-cap" data-i18n="cap-from">Откуда забрать</span>
-                        <input class="pt-input" id="addr-from" data-i18n-ph="ph-from" placeholder="Улица" onfocus="setActive('from')">
+                        <input class="pt-input" id="addr-from" data-i18n-ph="ph-from" placeholder="Улица" autocomplete="off" onfocus="setActive('from')" oninput="suggest('from')">
+                        <div class="sugg" id="sugg-from"></div>
                         <span class="pt-extra">
                             <label class="pt-box"><span class="cap" data-i18n="ph-house">Дом, кв.</span>
                                 <input class="pt-house" id="house-from" placeholder=""></label>
@@ -460,7 +471,8 @@
                 <div class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
                     <span class="pt-text">
                         <span class="pt-cap" data-i18n="cap-to">Куда доставить</span>
-                        <input class="pt-input" id="addr-to" data-i18n-ph="ph-to" placeholder="Куда везём?" onfocus="setActive('to')">
+                        <input class="pt-input" id="addr-to" data-i18n-ph="ph-to" placeholder="Куда везём?" autocomplete="off" onfocus="setActive('to')" oninput="suggest('to')">
+                        <div class="sugg" id="sugg-to"></div>
                         <span class="pt-extra">
                             <label class="pt-box"><span class="cap" data-i18n="ph-house">Дом, кв.</span>
                                 <input class="pt-house" id="house-to" placeholder=""></label>
@@ -827,6 +839,77 @@
                 paddingBottomRight: [50, 60], maxZoom: 17 });
         }
     }
+
+    // ── Поиск улицы по названию ──
+    // Photon (photon.komoot.io, данные OSM): в отличие от Nominatim разрешает
+    // подсказки при наборе. Ищем только дороги и только рядом с картой — иначе
+    // «Бехзод» находил памятник и улицы в других городах.
+    var suggTimer = {}, suggSeq = { from: 0, to: 0 };
+    var SKIP = { bus_stop: 1, platform: 1, stop: 1, crossing: 1, traffic_signals: 1, street_lamp: 1, give_way: 1 };
+    function ruStreet(n) {
+        // имена в OSM по Душанбе — по-таджикски; привычнее «улица …»
+        return n.replace(/^кӯчаи\s+/i, 'улица ').replace(/^хиёбони\s+/i, 'проспект ')
+                .replace(/^гузаргоҳи\s+/i, 'проезд ').replace(/^тупики\s+/i, 'тупик ');
+    }
+    function suggest(k) {
+        var q = document.getElementById('addr-' + k).value.trim(), box = document.getElementById('sugg-' + k);
+        clearTimeout(suggTimer[k]);
+        var seq = ++suggSeq[k];
+        // клиент печатает сам — запоздавший адрес по метке не должен затереть ввод
+        clearTimeout(geoTimer[k]); geoSeq[k]++;
+        document.getElementById('addr-' + k).classList.remove('loading');
+        if (q.length < 3) { box.innerHTML = ''; return; }
+        suggTimer[k] = setTimeout(function () {
+            var c = map.getCenter(), d = 0.25;
+            var url = 'https://photon.komoot.io/api/?limit=10&lang=default&osm_tag=highway&q=' + encodeURIComponent(q) +
+                '&lat=' + c.lat.toFixed(4) + '&lon=' + c.lng.toFixed(4) +
+                '&bbox=' + [c.lng - d, c.lat - d, c.lng + d, c.lat + d].map(function (x) { return x.toFixed(3); }).join(',');
+            fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+                if (seq !== suggSeq[k]) return;
+                var seen = {}, items = [];
+                (j.features || []).forEach(function (f) {
+                    var p = f.properties || {};
+                    if (!p.name || SKIP[p.osm_value]) return;
+                    var name = ruStreet(p.name), area = p.district || p.locality || p.city || '';
+                    if (seen[name + '|' + area]) return;
+                    seen[name + '|' + area] = 1;
+                    items.push({ name: name, area: [area, p.city !== area ? p.city : ''].filter(Boolean).join(', '),
+                                 lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] });
+                });
+                box.innerHTML = items.slice(0, 5).map(function (it, i) {
+                    return '<button type="button" data-i="' + i + '">' + esc(it.name) + (it.area ? '<span>' + esc(it.area) + '</span>' : '') + '</button>';
+                }).join('');
+                box.querySelectorAll('button').forEach(function (b) {
+                    // mousedown, а не click: иначе поле теряет фокус раньше и список пропадает
+                    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+                    b.addEventListener('click', function () { pickStreet(k, items[+b.dataset.i]); });
+                });
+            }).catch(function () {});
+        }, 350);
+    }
+    // Выбрали улицу: метка на неё, клавиатура прячется, шторка сворачивается —
+    // клиент двигает карту и ставит метку точно на свой дом
+    function pickStreet(k, it) {
+        document.getElementById('sugg-' + k).innerHTML = '';
+        suggSeq[k]++;
+        var el = document.getElementById('addr-' + k);
+        el.value = it.name; el.classList.remove('loading');
+        el.blur();
+        if (active !== k) { active = k; updateUi(); }
+        pts[k] = [it.lat, it.lon];
+        suppress = true;
+        map.setView(pts[k], 17, { animate: false });
+        draw();
+        var ph = document.getElementById('phone'), sc = document.getElementById('scroller');
+        ph.classList.remove('open'); sc.scrollTo({ top: 0 });
+        toast(t('hint-pin'));
+    }
+    document.addEventListener('focusout', function (e) {
+        if (e.target.classList && e.target.classList.contains('pt-input')) {
+            var k = e.target.id.slice(5);
+            setTimeout(function () { document.getElementById('sugg-' + k).innerHTML = ''; suggSeq[k]++; }, 150);
+        }
+    });
 
     // Перешли к любому другому полю (дом, подъезд, получатель…) — точку
     // закрепляем там, где стоит метка, и отпускаем карту
@@ -1253,6 +1336,7 @@
     (function () {
         var sc = document.getElementById('scroller'), ph = document.getElementById('phone');
         sc.addEventListener('scroll', function () {
+            if (typing()) return;   // с клавиатурой шторка всегда развёрнута — не дёргаем
             if (sc.scrollTop > 8) ph.classList.add('open');
             else if (sc.scrollTop <= 0) ph.classList.remove('open');
         }, { passive: true });
@@ -1262,9 +1346,26 @@
         };
     })();
     document.getElementById('phone').addEventListener('scroll', function () { this.scrollTop = 0; });
-    // iOS при клавиатуре сдвигает страницу вверх — после неё возвращаем на место
+    // Клавиатура: iPhone не сжимает окно Telegram, а сдвигает страницу — сверху
+    // оставалась чёрная пустота, шторка прыгала. Пока печатают, форма занимает
+    // ровно видимую часть над клавиатурой (visualViewport), шторка развёрнута.
+    function fitKeyboard() {
+        var ph = document.getElementById('phone'), vv = window.visualViewport;
+        if (typing() && vv) {
+            ph.classList.add('open');
+            ph.style.height = Math.round(vv.height) + 'px';
+            window.scrollTo(0, 0);
+        } else {
+            ph.style.height = '';
+        }
+    }
+    if (window.visualViewport) {
+        visualViewport.addEventListener('resize', fitKeyboard);
+        visualViewport.addEventListener('scroll', function () { if (typing() && window.scrollY) window.scrollTo(0, 0); });
+    }
+    document.addEventListener('focusin', function () { if (typing()) setTimeout(fitKeyboard, 50); });
     document.addEventListener('focusout', function () {
-        setTimeout(function () { if (!typing()) { window.scrollTo(0, 0); fitPeek(); } }, 120);
+        setTimeout(function () { if (!typing()) { fitKeyboard(); window.scrollTo(0, 0); fitPeek(); } }, 120);
     });
     document.addEventListener('input', function (e) { var el = e.target; if (el.classList) (el.closest('.pt-box, .tel') || el).classList.remove('miss'); });
     document.getElementById('pin').style.setProperty('--pin', COLORS.from);
