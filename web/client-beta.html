@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Mavsim Rason</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="theme.css?v=5">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #d9dedb; }
+
+    /* «Телефон»: на компьютере — колонка 420px по центру, в Telegram — весь экран.
+       transform делает её точкой отсчёта для absolute-слоёв. */
+    .phone {
+        position: relative; height: 100dvh; width: 100%; max-width: 430px; margin: 0 auto;
+        overflow: hidden; background: var(--surface); transform: translateZ(0);
+        box-shadow: 0 0 40px rgba(0,0,0,.15);
+    }
+
+    /* Карта заходит под скруглённый верх шторки на 24px — без серых уголков */
+    #map { position: absolute; top: 0; left: 0; right: 0; bottom: calc(var(--peek) - 24px); z-index: 0; }
+    .phone { --peek: 330px; }
+
+    /* Метка — в центре видимой части карты; двигается карта, а не метка */
+    .pin {
+        position: absolute; left: 50%; z-index: 5; pointer-events: none;
+        top: calc((100% - var(--peek) + 24px) / 2); transform: translate(-50%, -100%);
+        display: flex; flex-direction: column; align-items: center;
+        transition: transform .15s;
+    }
+    .pin.lift { transform: translate(-50%, calc(-100% - 10px)); }
+    .pin.off { display: none; }
+    .pin-bubble {
+        pointer-events: auto; cursor: pointer; border: 0; font: inherit;
+        display: flex; align-items: center; gap: 6px;
+        background: var(--pin, var(--ok)); color: #fff; font-size: 13px; font-weight: 700;
+        padding: 8px 13px; border-radius: 999px; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.25);
+    }
+    .pin-stick { width: 3px; height: 16px; background: var(--pin, var(--ok)); border-radius: 0 0 2px 2px; }
+    .pin-dot { width: 8px; height: 4px; border-radius: 50%; background: rgba(0,0,0,.3); margin-top: 1px; }
+
+    .top {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+        padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
+        display: flex; align-items: center; gap: 8px; pointer-events: none;
+    }
+    .top > * { pointer-events: auto; }
+    .chip {
+        background: var(--surface); border-radius: 999px; box-shadow: var(--shadow);
+        display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px;
+    }
+    /* Шапка: логотип, языки и кабинет — одной высоты 40px */
+    .chip img { height: 21px; width: auto; display: block; }
+    /* Переключатель языка: подложка плавно переезжает на выбранный */
+    .lang { margin-left: auto; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; position: relative; }
+    .chip.lang { padding: 3px; }
+    .lang button { height: 34px; }
+    .lang::before {
+        content: ''; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px);
+        border-radius: 999px; background: var(--accent-soft);
+        transition: transform .32s cubic-bezier(.3, 1.3, .5, 1);
+    }
+    .lang.tj::before { transform: translateX(100%); }
+    .lang button {
+        position: relative; font: inherit; font-size: 12px; font-weight: 700; border: 0; background: transparent;
+        color: var(--ink-3); padding: 5px 10px; border-radius: 999px; cursor: pointer; transition: color .25s;
+    }
+    .lang button[aria-pressed="true"] { color: var(--accent); }
+    .icon-btn {
+        width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--surface);
+        box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer; color: var(--ink);
+    }
+
+    .locate {
+        position: absolute; right: 12px; bottom: calc(var(--peek) + 14px); z-index: 6;
+        width: 46px; height: 46px;
+    }
+
+    /* Прокрутка: прозрачный верх пропускает касания на карту, шторка — нет */
+    .scroller {
+        position: absolute; inset: 0; z-index: 10; overflow-y: auto; overscroll-behavior: contain;
+        pointer-events: none; scrollbar-width: none;
+    }
+    .scroller::-webkit-scrollbar { display: none; }
+    .spacer { height: calc(100% - var(--peek)); pointer-events: none; }
+    .sheet {
+        pointer-events: auto; position: relative; min-height: calc(100% - 70px);
+        background: var(--surface); border-radius: 22px 22px 0 0;
+        box-shadow: 0 -8px 24px rgba(0,0,0,.12); padding: 8px 14px 0;
+    }
+    .grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 0 auto 12px; }
+
+    /* Откуда / Куда */
+    .route-box { border-radius: 16px; background: var(--surface-2); padding: 4px; }
+    .pt-row {
+        display: flex; align-items: flex-start; gap: 10px; padding: 7px 10px 8px; border-radius: 12px;
+        border: 2px solid transparent; cursor: text; transition: border-color .15s, background .15s;
+    }
+    .pt-row.active { background: var(--surface); border-color: var(--pt-c); }
+    .pt-row + .pt-row { margin-top: 2px; }
+    .pt-dot { margin-top: 18px; width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--pt-c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pt-c) 22%, transparent); }
+    .pt-text { flex: 1; min-width: 0; }
+    .pt-cap { font-size: 11px; font-weight: 600; color: var(--ink-3); }
+    .pt-input {
+        width: 100%; border: 0; outline: 0; background: transparent; padding: 1px 0 0;
+        font: inherit; font-size: 15.5px; font-weight: 650; color: var(--ink);
+        text-overflow: ellipsis;
+    }
+    .pt-input::placeholder { color: var(--ink-3); font-weight: 600; }
+    /* Дом — руками: номера домов в OSM часто врут, а клиент свой номер знает */
+    .pt-house {
+        width: 100%; border: 0; background: transparent; padding: 0; font: inherit;
+        font-size: 15px; font-weight: 650; color: var(--ink); outline: 0;
+    }
+    .pt-extra { display: flex; gap: 8px; margin-top: 6px; }
+    .pt-box {
+        flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; cursor: text;
+        border: 1.5px solid var(--border-strong); border-radius: 10px; background: var(--surface);
+        padding: 7px 9px;
+    }
+    .pt-box.opt { flex: .8; }
+    .pt-box:focus-within { border-color: var(--pt-c); }
+    .pt-box.miss { border-color: var(--bad); }
+    .pt-box .cap { font-size: 12px; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+    .pt-box.miss .cap { color: var(--bad); }
+    .pt-house::placeholder { color: var(--ink-3); font-weight: 600; font-size: 13px; }
+    .pt-input.miss { border-color: var(--bad); }
+    .pt-input.miss::placeholder { color: var(--bad); }
+    .sheet-hint { font-size: 12.5px; line-height: 1.35; color: var(--ink-3); margin: 0 2px 8px; display: flex; gap: 6px; align-items: center; }
+    .pt-from { --pt-c: var(--ok); }
+    .pt-to   { --pt-c: var(--accent); }
+
+    .sec { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .sec.tight { margin-top: 12px; padding-top: 0; border-top: 0; }
+
+    /* Поля в шторке — мягкие плашки без рамки (как в такси-приложениях) */
+    .sheet .input, .sheet .select {
+        min-height: 50px; border-radius: 13px; border: 1.5px solid transparent;
+        background-color: var(--surface-2); font-size: 15.5px; transition: border-color .15s, background-color .15s;
+    }
+    .sheet .input:focus, .sheet .select:focus { background-color: var(--surface); border-color: var(--accent); box-shadow: none; }
+    .sheet .field + .field { margin-top: 10px; }
+
+    /* Телефон с готовым +992 */
+    .tel { display: flex; align-items: center; min-height: 50px; border-radius: 13px; background: var(--surface-2);
+           border: 1.5px solid transparent; transition: border-color .15s, background .15s; }
+    .tel:focus-within { background: var(--surface); border-color: var(--accent); }
+    .tel.miss { border-color: var(--bad); }
+    /* Поля внутри плашек: рамку рисует сама плашка (:focus-within), своя у поля
+       давала вторую обводку внутри */
+    .tel input:focus, .tel input:focus-visible,
+    .pt-input:focus, .pt-input:focus-visible,
+    .pt-house:focus, .pt-house:focus-visible,
+    .stepper input:focus, .stepper input:focus-visible { outline: none; box-shadow: none; }
+    .tel b { padding: 0 4px 0 14px; font-size: 15.5px; font-weight: 700; color: var(--ink-2); }
+    .tel input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 15.5px;
+                 color: var(--ink); padding: 0 14px 0 2px; height: 46px; letter-spacing: .02em; }
+
+    /* Размер посылки — карточками, а не тремя числами */
+    .sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .size {
+        text-align: left; font: inherit; cursor: pointer; padding: 11px 12px; border-radius: 14px;
+        border: 1.5px solid var(--border); background: var(--surface); color: var(--ink);
+        transition: border-color .15s, background .15s;
+    }
+    .size b { display: block; font-size: 14.5px; font-weight: 700; }
+    .size span { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+    .size[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+    .size[aria-pressed="true"] span { color: var(--accent); }
+    .own { margin-top: 10px; }
+    .own summary { cursor: pointer; font-size: 13.5px; font-weight: 650; color: var(--ink-2); list-style: none; padding: 4px 2px; }
+    .own summary::-webkit-details-marker { display: none; }
+    .own summary::after { content: ' ›'; }
+    .own[open] summary::after { content: ' ‹'; }
+    .own .row3 { margin-top: 8px; }
+
+    .wrow { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+    .wrow .label { margin: 0; font-size: 14px; color: var(--ink); font-weight: 650; }
+    .stepper { display: flex; align-items: center; gap: 4px; background: var(--surface-2); border-radius: 13px; padding: 4px; }
+    .stepper button { width: 40px; height: 40px; border-radius: 10px; border: 0; background: var(--surface); color: var(--ink);
+                      font: inherit; font-size: 20px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm); }
+    .stepper button:active { transform: scale(.94); }
+    .stepper input { width: 64px; text-align: center; border: 0; background: transparent; outline: 0; font: inherit;
+                     font-size: 16px; font-weight: 700; color: var(--ink); -moz-appearance: textfield; }
+    .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+    /* Направление — одной строкой */
+    .dir { display: flex; align-items: center; gap: 10px; }
+    .dir-main { flex: 1; min-width: 0; }
+    .dir-main b { display: block; font-size: 15px; font-weight: 700; }
+    .dir-main span { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+    .link-btn { font: inherit; font-size: 13.5px; font-weight: 650; color: var(--accent); background: transparent; border: 0; cursor: pointer; padding: 6px 2px; }
+    .row2.dir-edit { display: none; margin-top: 12px; }
+    .row2.dir-edit.on { display: grid; }
+    .bar-eta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-3); margin: 0 2px 8px; }
+    .bar-eta b { color: var(--ink-2); font-weight: 650; }
+    .limits {
+        display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 8px 11px;
+        border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+        font-size: 12.5px; font-weight: 600; line-height: 1.3;
+    }
+    .limits svg { flex: none; }
+    .limits.over { background: var(--bad-soft); color: var(--bad); }
+    .sec-title { font-size: 17px; font-weight: 800; margin: 0 0 12px; letter-spacing: -.015em; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .row2 .field + .field { margin-top: 0; }
+    .row3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+    .mini { font-size: 11.5px; color: var(--ink-3); text-align: center; margin-top: 4px; }
+    .tariff { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+    .tariff b { color: var(--ink); }
+
+    .order-bar {
+        position: sticky; bottom: 0; margin: 18px -14px 0; padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+        background: var(--surface); border-top: 1px solid var(--border);
+    }
+    .order-btn {
+        width: 100%; min-height: 54px; border: 0; border-radius: 16px; cursor: pointer;
+        background: var(--accent); color: #fff; font: inherit; font-size: 16px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .order-btn .sum { background: rgba(255,255,255,.2); border-radius: 999px; padding: 3px 10px; font-size: 14px; }
+    .order-btn:active { transform: scale(.99); }
+    .field .input.miss { border-color: var(--bad); }
+
+    /* ── кабинет ── */
+    .cab {
+        position: absolute; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto;
+        transform: translateX(100%); transition: transform .28s cubic-bezier(.3,.9,.4,1);
+        padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    }
+    .cab.on { transform: none; }
+    .cab-top {
+        position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+        padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: var(--bg);
+    }
+    .cab-top h2 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -.015em; }
+    .cab-body { padding: 0 14px; }
+    .cab-card { background: var(--surface); border-radius: 18px; padding: 14px; margin-bottom: 12px; }
+    .cab-card h3 { margin: 0 0 12px; font-size: 16px; font-weight: 800; letter-spacing: -.01em; display: flex; align-items: center; }
+    .cab-card h3 .more { margin-left: auto; }
+    .cab .input { min-height: 50px; border-radius: 13px; border: 1.5px solid transparent; background-color: var(--surface-2); font-size: 15.5px; }
+    .cab .input:focus { background-color: var(--surface); border-color: var(--accent); box-shadow: none; }
+    .cab .field + .field { margin-top: 10px; }
+    .who { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .ava { width: 52px; height: 52px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-size: 18px; font-weight: 800; flex: none; }
+    .who-name { font-size: 17px; font-weight: 800; }
+    .who-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+    .tg-note { font-size: 12px; color: var(--ink-3); margin: 6px 2px 0; }
+    .save { width: 100%; min-height: 48px; margin-top: 12px; border: 0; border-radius: 13px; background: var(--ink); color: var(--surface); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .save:disabled { opacity: .35; cursor: default; }
+
+    .addr { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); cursor: pointer; }
+    .addr:first-of-type { border-top: 0; padding-top: 2px; }
+    .addr-ic { width: 38px; height: 38px; border-radius: 12px; background: var(--surface-2); display: grid; place-items: center; font-size: 17px; flex: none; }
+    .addr-t { flex: 1; min-width: 0; }
+    .addr-t b { display: block; font-size: 14.5px; font-weight: 700; }
+    .addr-t span { display: block; font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .addr-use { font-size: 12.5px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .add-addr { margin-top: 6px; font: inherit; font-size: 14px; font-weight: 700; color: var(--accent); background: transparent; border: 0; padding: 8px 0; cursor: pointer; }
+
+    .chips { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
+    .chips button { font: inherit; font-size: 13px; font-weight: 650; padding: 7px 13px; border-radius: 999px; border: 0; background: var(--surface-2); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+    .chips button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+
+    .ord { border: 1.5px solid var(--border); border-radius: 16px; padding: 12px 13px; margin-bottom: 10px; cursor: pointer; }
+    .ord.live { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+    .ord-top { display: flex; align-items: center; gap: 8px; }
+    .ord-id { font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
+    .ord-date { font-size: 12.5px; color: var(--ink-3); }
+    .st-badge { margin-left: auto; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+    .st-badge.s-new { background: var(--surface-2); color: var(--ink-2); }
+    .st-badge.s-wait { background: #FFF4D6; color: #9A6B00; }
+    .st-badge.s-taken, .st-badge.s-transit { background: var(--accent-soft); color: var(--accent); }
+    .st-badge.s-done { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+    .st-badge.s-cancel { background: var(--bad-soft); color: var(--bad); }
+    .ord-route { margin-top: 8px; font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+    .ord-route .arr { color: var(--ink-3); font-weight: 600; }
+    .ord-sub { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: var(--ink-3); }
+    .ord-sub b { color: var(--ink); font-weight: 750; }
+    .prog { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 10px; }
+    .prog i { position: relative; overflow: hidden; height: 4px; border-radius: 4px; background: var(--border); }
+    .prog i.on::after { content: ''; position: absolute; inset: 0; background: var(--accent); transform-origin: left; transition: background .4s; }
+    .prog i.grow::after { animation: grow .7s cubic-bezier(.4, 0, .2, 1) both; }
+    @keyframes grow { from { transform: scaleX(0); } }
+    .prog.fin i.on::after { background: var(--ok); }
+    .prog-l.fin { color: var(--ok); }
+    .prog-l { font-size: 12px; font-weight: 650; color: var(--accent); margin-top: 6px; }
+
+    .ord-more { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); cursor: default; }
+    .ord.open .ord-more { display: block; }
+    .tl { position: relative; padding-left: 18px; }
+    .tl::before { content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; border-left: 2px solid var(--border); }
+    .tl-i { position: relative; font-size: 13.5px; padding: 3px 0; color: var(--ink-3); display: flex; justify-content: space-between; }
+    .tl-i::before { content: ''; position: absolute; left: -18px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+    .tl-i.done { color: var(--ink); font-weight: 600; }
+    .tl-i.done::before { background: var(--ok); }
+    .tl-i.cur { color: var(--accent); font-weight: 700; }
+    .tl-i.cur::before { background: var(--accent); animation: pulse 1.8s ease-out infinite; }
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+        70%, 100% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent); }
+    }
+    /* только что наступивший шаг */
+    .tl-i.just::before { animation: dot-pop .45s cubic-bezier(.3, 1.6, .5, 1) both, pulse 1.8s .45s ease-out infinite; }
+    .tl-i.just > span { animation: fade-in .45s .1s ease-out both; }
+    .tl-i.done.just::before { animation: dot-pop .45s cubic-bezier(.3, 1.6, .5, 1) both; }   /* «Доставлен» — без пульса */
+    @keyframes dot-pop { from { transform: scale(0); } }
+    @keyframes fade-in { from { opacity: 0; transform: translateX(-4px); } }
+    .st-badge.flash { animation: flash .8s ease-out; }
+    @keyframes flash { 0% { transform: scale(.85); } 40% { transform: scale(1.08); } 100% { transform: none; } }
+    .prog-l.just { animation: fade-in .45s ease-out both; }
+    .sim { grid-column: 1 / -1; background: var(--surface-2) !important; border-color: transparent !important; }
+    @media (prefers-reduced-motion: reduce) {
+        .tl-i.cur::before, .tl-i.just::before, .tl-i.just > span, .st-badge.flash, .prog i.grow::after, .prog-l.just { animation: none !important; }
+    }
+    .kv2 { font-size: 13.5px; margin-top: 10px; line-height: 1.5; }
+    .kv2 span { color: var(--ink-3); }
+    .ord-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .ord-acts button { min-height: 44px; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; border: 1.5px solid var(--border-strong); background: var(--surface); color: var(--ink); }
+    .ord-acts .rep { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .none { text-align: center; color: var(--ink-3); font-size: 14px; padding: 20px 0 8px; }
+
+    /* ── экран «заказ оформлен» ── */
+    .ok-screen {
+        position: absolute; inset: 0; z-index: 60; background: var(--surface);
+        display: none; flex-direction: column; align-items: center; justify-content: center;
+        padding: 24px 22px calc(24px + env(safe-area-inset-bottom)); text-align: center;
+    }
+    .ok-screen.on { display: flex; animation: done-in .25s ease both; }
+    @keyframes done-in { from { opacity: 0; } to { opacity: 1; } }
+    .done-mark { position: relative; width: 112px; height: 112px; margin-bottom: 26px; }
+    .done-mark .ring {
+        position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--ok); opacity: 0;
+    }
+    .ok-screen.on .done-mark .ring { animation: ring 1.1s .35s ease-out both; }
+    .ok-screen.on .done-mark .ring.r2 { animation-delay: .55s; }
+    @keyframes ring { 0% { transform: scale(.9); opacity: .55; } 100% { transform: scale(1.75); opacity: 0; } }
+    .done-mark .disc {
+        position: absolute; inset: 0; border-radius: 50%; background: var(--ok);
+        display: grid; place-items: center; transform: scale(0);
+        box-shadow: 0 12px 28px -10px color-mix(in srgb, var(--ok) 70%, black);
+    }
+    .ok-screen.on .done-mark .disc { animation: pop .5s .1s cubic-bezier(.3, 1.6, .5, 1) both; }
+    @keyframes pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+    .done-mark svg path { stroke-dasharray: 60; stroke-dashoffset: 60; }
+    .ok-screen.on .done-mark svg path { animation: draw .45s .5s ease-out forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    .done-up { opacity: 0; transform: translateY(10px); }
+    .ok-screen.on .done-up { animation: up .45s ease-out forwards; }
+    .ok-screen.on .done-up.d1 { animation-delay: .75s; } .ok-screen.on .done-up.d2 { animation-delay: .9s; }
+    .ok-screen.on .done-up.d3 { animation-delay: 1.05s; } .ok-screen.on .done-up.d4 { animation-delay: 1.2s; }
+    @keyframes up { to { opacity: 1; transform: none; } }
+    .done h2 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+    .done-id { margin-top: 6px; font-size: 14px; color: var(--ink-3); font-weight: 600; }
+    .done-sum { margin-top: 18px; width: 100%; background: var(--surface-2); border-radius: 16px; padding: 14px; text-align: left; }
+    .done-pt { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 8px; }
+    .done-pt + .done-pt { margin-top: 10px; }
+    .done-pt .cap { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding-top: 3px; }
+    .done-pt.a .cap { color: var(--ok); } .done-pt.b .cap { color: var(--accent); }
+    .done-pt .st { font-size: 15px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+    .done-pt .hs { grid-column: 2; font-size: 13px; color: var(--ink-3); }
+    .done-sum .p { display: flex; justify-content: space-between; align-items: baseline; margin-top: 12px; padding-top: 12px;
+                   border-top: 1px solid var(--border); font-size: 13.5px; color: var(--ink-2); }
+    .done-sum .p b { color: var(--ink); font-size: 16px; }
+    .done-next { margin-top: 14px; font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+    .done-acts { width: 100%; display: grid; gap: 8px; margin-top: 22px; }
+    .done-acts button { min-height: 52px; border-radius: 15px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; border: 0; }
+    .done-acts .ok { background: var(--accent); color: #fff; }
+    .done-acts .alt { background: var(--surface-2); color: var(--ink); }
+    @media (prefers-reduced-motion: reduce) {
+        .ok-screen.on *, .ok-screen.on { animation-duration: .01s !important; animation-delay: 0s !important; }
+    }
+
+    .route-run { animation: route-run 2.2s linear infinite; }
+    @keyframes route-run { to { stroke-dashoffset: -20; } }
+    .leaflet-control-attribution { font-size: 9px !important; }
+
+    /* ── режим замечаний (только в прототипе) ── */
+    .fb-btn {
+        position: absolute; left: 12px; bottom: calc(var(--peek) + 14px); z-index: 6;
+        height: 38px; padding: 0 12px; border-radius: 999px; border: 0; cursor: pointer;
+        background: #3b3f46; color: #fff; font: inherit; font-size: 13px; font-weight: 650; box-shadow: var(--shadow);
+    }
+    .test-btn { left: auto; right: 70px; }   /* только в прототипе */
+    body.fb-mode * { cursor: crosshair !important; }
+    .fb-hl { outline: 3px solid #e53935 !important; outline-offset: 2px; }
+    .fb-toast {
+        position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 9999;
+        background: #3b3f46; color: #fff; padding: 9px 14px; border-radius: 12px; font-size: 13px;
+        display: none; max-width: 90%; text-align: center;
+    }
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+    <div id="map"></div>
+
+    <div class="pin" id="pin">
+        <button type="button" class="pin-bubble" id="pin-bubble" onclick="confirmPoint()">
+            <span id="pin-text">Забрать здесь</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+        <div class="pin-stick"></div>
+        <div class="pin-dot"></div>
+    </div>
+
+    <div class="top">
+        <div class="chip"><img src="img/logo-mavsim-rason.png" alt="Mavsim Rason"></div>
+        <div class="chip lang">
+            <button id="lang-ru" aria-pressed="true" onclick="setLang('ru')">RU</button>
+            <button id="lang-tj" aria-pressed="false" onclick="setLang('tj')">TJ</button>
+        </div>
+        <button class="icon-btn" title="Кабинет" onclick="openCab()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+    </div>
+
+    <button class="icon-btn locate" onclick="locateMe()" title="Я здесь">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>
+    </button>
+
+    <div class="scroller" id="scroller">
+        <div class="spacer"></div>
+        <div class="sheet">
+            <div class="grab"></div>
+            <div class="sheet-hint" id="sheet-hint"></div>
+
+            <div class="route-box">
+                <label class="pt-row pt-from active" id="row-from" onclick="rowClick(event, 'from')">
+                    <span class="pt-text">
+                        <span class="pt-cap" data-i18n="cap-from">Откуда забрать</span>
+                        <input class="pt-input" id="addr-from" data-i18n-ph="ph-from" placeholder="Улица" onfocus="setActive('from')">
+                        <span class="pt-extra">
+                            <label class="pt-box"><span class="cap" data-i18n="ph-house">Дом, кв.</span>
+                                <input class="pt-house" id="house-from" placeholder=""></label>
+                            <label class="pt-box opt"><span class="cap" data-i18n="ph-porch">Подъезд</span>
+                                <input class="pt-house" id="porch-from" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
+                        </span>
+                    </span>
+                </label>
+                <label class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
+                    <span class="pt-text">
+                        <span class="pt-cap" data-i18n="cap-to">Куда доставить</span>
+                        <input class="pt-input" id="addr-to" data-i18n-ph="ph-to" placeholder="Куда везём?" onfocus="setActive('to')">
+                        <span class="pt-extra">
+                            <label class="pt-box"><span class="cap" data-i18n="ph-house">Дом, кв.</span>
+                                <input class="pt-house" id="house-to" placeholder=""></label>
+                            <label class="pt-box opt"><span class="cap" data-i18n="ph-porch">Подъезд</span>
+                                <input class="pt-house" id="porch-to" inputmode="numeric" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
+                        </span>
+                    </span>
+                </label>
+            </div>
+
+            <div class="sec tight">
+                <div class="field">
+                    <label class="label" for="comment" data-i18n="lbl-comment">Ориентир для курьера</label>
+                    <input class="input" id="comment" data-i18n-ph="ph-comment" placeholder="Этаж, рядом с магазином, цвет ворот…">
+                </div>
+            </div>
+
+            <div class="sec">
+                <h3 class="sec-title" data-i18n="sec-receiver">Получатель</h3>
+                <div class="field">
+                    <input class="input" id="r_name" data-i18n-ph="ph-r-name" placeholder="Имя получателя">
+                </div>
+                <div class="field">
+                    <label class="tel" id="tel-box"><b>+992</b><input id="r_phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="XX XXX XX XX" oninput="fmtPhone(this)"></label>
+                </div>
+            </div>
+
+            <div class="sec">
+                <h3 class="sec-title" data-i18n="sec-parcel">Посылка</h3>
+                <div class="sizes" id="sizes">
+                    <button type="button" class="size" data-size="docs" onclick="setSize('docs')"><b data-i18n="size-docs">Документы</b><span>30 × 20 × 2 см</span></button>
+                    <button type="button" class="size" data-size="s" onclick="setSize('s')"><b data-i18n="size-s">Маленькая</b><span>20 × 15 × 10 см</span></button>
+                    <button type="button" class="size" data-size="m" onclick="setSize('m')"><b data-i18n="size-m">Средняя</b><span>40 × 30 × 20 см</span></button>
+                    <button type="button" class="size" data-size="l" onclick="setSize('l')"><b data-i18n="size-l">Большая</b><span>50 × 50 × 30 см</span></button>
+                </div>
+                <details class="own" id="own">
+                    <summary data-i18n="own-size">Указать точные размеры</summary>
+                    <div class="row3">
+                        <div><input class="input mono" id="size_l" type="number" value="20" oninput="ownSize()"><div class="mini" data-i18n="dim-l">Длина</div></div>
+                        <div><input class="input mono" id="size_w" type="number" value="15" oninput="ownSize()"><div class="mini" data-i18n="dim-w">Ширина</div></div>
+                        <div><input class="input mono" id="size_h" type="number" value="10" oninput="ownSize()"><div class="mini" data-i18n="dim-h">Высота</div></div>
+                    </div>
+                </details>
+                <div class="wrow">
+                    <span class="label" data-i18n="lbl-weight">Вес, кг</span>
+                    <div class="stepper">
+                        <button type="button" onclick="stepW(-1)" aria-label="меньше">−</button>
+                        <input id="weight" type="number" step="0.5" min="0.5" max="30" value="1" inputmode="decimal" oninput="calc()">
+                        <button type="button" onclick="stepW(1)" aria-label="больше">+</button>
+                    </div>
+                </div>
+                <div class="limits" id="limits">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    <span data-i18n="limits">До 30 кг и не больше 50 × 50 × 30 см</span>
+                </div>
+            </div>
+
+            <div class="sec">
+                <div class="dir">
+                    <div class="dir-main"><b id="dir-text">Душанбе → Душанбе</b><span id="eta"></span></div>
+                    <button type="button" class="link-btn" onclick="document.getElementById('dir-edit').classList.toggle('on')" data-i18n="change">Изменить</button>
+                </div>
+                <div class="row2 dir-edit" id="dir-edit">
+                    <div class="field">
+                        <label class="label" for="city_from" data-i18n="lbl-from">Откуда</label>
+                        <select class="select" id="city_from" onchange="calc()"></select>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="city_to" data-i18n="lbl-to">Куда</label>
+                        <select class="select" id="city_to" onchange="calc()"></select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="order-bar">
+                <div class="bar-eta"><span id="bar-eta"></span><b id="tariff-note"></b></div>
+                <button class="order-btn" id="order-btn" onclick="order()">
+                    <span data-i18n="btn-order">Заказать</span><span class="sum" id="sum">20 TJS</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <section class="ok-screen" id="done" role="status" aria-live="polite">
+        <div class="done-mark">
+            <span class="ring"></span><span class="ring r2"></span>
+            <span class="disc">
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            </span>
+        </div>
+        <h2 class="done-up d1" data-i18n="done-t">Заказ оформлен</h2>
+        <div class="done-id done-up d1" id="done-id"></div>
+        <div class="done-sum done-up d2">
+            <div id="done-route"></div>
+            <div class="p"><span id="done-eta"></span><b id="done-price"></b></div>
+        </div>
+        <div class="done-next done-up d3" data-i18n="done-next">Менеджер подтвердит заказ, курьер позвонит перед приездом. Статус — в «Мои заказы».</div>
+        <div class="done-acts done-up d4" id="done-acts">
+            <button class="ok" onclick="closeDone()" data-i18n="done-ok">Готово</button>
+            <button class="alt" onclick="closeDone(); openCab(); setTimeout(function () { document.getElementById('hist').scrollIntoView({ block: 'start' }); }, 300)" data-i18n="done-my">Мои заказы</button>
+        </div>
+    </section>
+
+    <section class="cab" id="cab" aria-hidden="true">
+        <div class="cab-top">
+            <button class="icon-btn" onclick="closeCab()" aria-label="Назад">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <h2 data-i18n="cab">Кабинет</h2>
+        </div>
+        <div class="cab-body">
+            <div class="cab-card">
+                <div class="who">
+                    <div class="ava" id="ava">АА</div>
+                    <div><div class="who-name" id="who-name"></div><div class="who-sub" data-i18n="who-sub">Отправитель в ваших заказах</div></div>
+                </div>
+                <div class="field">
+                    <label class="label" for="p-name" data-i18n="p-name">Имя и фамилия</label>
+                    <input class="input" id="p-name" readonly>
+                </div>
+                <div class="field">
+                    <label class="label" for="p-phone" data-i18n="p-phone">Телефон для курьера</label>
+                    <label class="tel" id="p-tel"><b>+992</b><input id="p-phone" type="tel" inputmode="numeric" placeholder="XX XXX XX XX" readonly></label>
+                    <div class="tg-note" id="tg-note"></div>
+                </div>
+            </div>
+
+            <div class="cab-card" id="addrs-card">
+                <h3 data-i18n="my-addr">Мои адреса</h3>
+                <div id="addrs"></div>
+            </div>
+
+            <div class="cab-card">
+                <h3 data-i18n="history">История заказов</h3>
+                <div class="chips" id="h-chips">
+                    <button aria-pressed="true" data-f="all" onclick="setHF('all')" data-i18n="f-all">Все</button>
+                    <button aria-pressed="false" data-f="live" onclick="setHF('live')" data-i18n="f-live">Активные</button>
+                    <button aria-pressed="false" data-f="done" onclick="setHF('done')" data-i18n="f-done">Доставленные</button>
+                </div>
+                <div id="hist"></div>
+            </div>
+        </div>
+    </section>
+</div>
+<div class="fb-toast" id="fb-toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+    var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    var T = {
+        ru: {
+            'cap-from': 'Откуда забрать', 'cap-to': 'Куда доставить',
+            'ph-from': 'Улица', 'ph-to': 'Куда везём?', 'ph-house': 'Дом, кв.', 'ph-porch': 'Подъезд', 'ph-porch-opt': 'если есть',
+            'hint-pin': 'Поставьте метку точно на дом и нажмите на неё',
+            'hint-done': 'Точки закреплены. Изменить — нажмите на адрес', 'addr-known': '✓ Адрес уже проверен нашими курьерами', 'addr-prev': '✓ Адрес из прошлых заказов — проверьте номер дома', 'now-to': 'Теперь — куда доставить',
+            'miss-house': 'Впишите номер дома',
+            'pin-from': 'Забрать здесь', 'pin-to': 'Доставить сюда',
+            'lbl-comment': 'Ориентир для курьера', 'ph-comment': 'Этаж, рядом с магазином, цвет ворот…',
+            'sec-receiver': 'Получатель', 'ph-r-name': 'Имя получателя',
+            'sec-parcel': 'Посылка', 'size-docs': 'Документы', 'size-s': 'Маленькая', 'size-m': 'Средняя', 'size-l': 'Большая',
+            'own-size': 'Указать точные размеры', 'change': 'Изменить', 'deliv': 'Доставка',
+            'tariff': '{b} TJS до 5 кг, далее +{k} TJS за кг', 'limits': 'До 30 кг и не больше 50 × 50 × 30 см', 'lbl-weight': 'Вес, кг', 'lbl-dims': 'Габариты, см',
+            'dim-l': 'Длина', 'dim-w': 'Ширина', 'dim-h': 'Высота',
+            'sec-dir': 'Направление', 'lbl-from': 'Откуда', 'lbl-to': 'Куда',
+            'btn-order': 'Заказать',
+            'w-house': 'дом', 'w-porch': 'подъезд',
+            'done-t': 'Заказ оформлен', 'done-ok': 'Готово', 'done-my': 'Мои заказы',
+            'done-next': 'Менеджер подтвердит заказ, курьер позвонит перед приездом. Статус — в «Мои заказы».',
+            'cab': 'Кабинет', 'who-sub': 'Отправитель в ваших заказах', 'p-name': 'Имя и фамилия',
+            'p-phone': 'Телефон для курьера', 'tg-num': 'Telegram привязан к {n} — курьер будет звонить на номер выше',
+            'save': 'Сохранить', 'saved': 'Сохранено', 'my-addr': 'Мои адреса', 'add-addr': '+ Добавить адрес',
+            'use-from': 'Откуда', 'use-to': 'Куда', 'history': 'История заказов',
+            'f-all': 'Все', 'f-live': 'Активные', 'f-done': 'Доставленные', 'none': 'Пока пусто',
+            'st-NEW': 'Заказ создан', 'st-SEARCH': 'Ищем курьера', 'st-PICKUP': 'Курьер едет на точку сбора',
+            'st-TRANSIT': 'Курьер едет к получателю', 'st-HANDOVER': 'Курьер передаёт заказ',
+            'st-DELIVERED': 'Доставлено', 'st-CANCELLED': 'Отменён',
+            'repeat': 'Повторить', 'support': 'Поддержка', 'recv': 'Получатель', 'parcel': 'Посылка',
+            'repeated': 'Форма заполнена как в заказе {id}', 'addr-set': 'Адрес подставлен',
+            'new-addr': 'Поставьте метку на карте и впишите дом — потом нажмите «Сохранить адрес» (в боевой версии)',
+            'support-t': 'Поддержка — кнопкой в меню бота',
+            'miss': 'Заполните поле', 'too-large': 'Слишком большая посылка — только через сайт',
+            'eta-day': 'в день заказа', 'eta-1-2': '1–2 дня', 'eta-2-3': '2–3 дня', 'eta-3-4': '3–4 дня',
+            'eta-2-4': '2–4 дня', 'eta-to-4': 'до 4 дней', 'eta-5plus': 'от 5 дней', 'eta': 'Срок:',
+            'no-geo': 'Не удалось определить местоположение', 'sent': 'Тест: заказ оформлен — смотрите в Кабинете'
+        },
+        tj: {
+            'cap-from': 'Аз куҷо гирифтан', 'cap-to': 'Ба куҷо расонидан',
+            'ph-from': 'Кӯча', 'ph-to': 'Ба куҷо мебарем?', 'ph-house': 'Хона, ҳуҷра', 'ph-porch': 'Даромадгоҳ', 'ph-porch-opt': 'агар бошад',
+            'hint-pin': 'Аломатро маҳз болои хона гузоред ва онро пахш кунед',
+            'hint-done': 'Нуқтаҳо собит шуданд. Барои тағйир — суроғаро пахш кунед', 'addr-known': '✓ Суроға аллакай тасдиқ шудааст', 'addr-prev': '✓ Суроға аз фармоишҳои пешина — рақами хонаро санҷед', 'now-to': 'Акнун — ба куҷо расонидан',
+            'miss-house': 'Рақами хонаро нависед',
+            'pin-from': 'Аз ин ҷо гирифтан', 'pin-to': 'Ба ин ҷо расонидан',
+            'lbl-comment': 'Нишона барои курьер', 'ph-comment': 'Ошёна, назди мағоза, ранги дарвоза…',
+            'sec-receiver': 'Қабулкунанда', 'ph-r-name': 'Номи қабулкунанда',
+            'sec-parcel': 'Бастa', 'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андоза, см',
+            'dim-l': 'Дарозӣ', 'dim-w': 'Бар', 'dim-h': 'Баландӣ',
+            'sec-dir': 'Самт', 'lbl-from': 'Аз куҷо', 'lbl-to': 'Ба куҷо',
+            'btn-order': 'Фармоиш додан',
+            'w-house': 'хона', 'w-porch': 'даромадгоҳ',
+            'done-t': 'Фармоиш қабул шуд', 'done-ok': 'Тайёр', 'done-my': 'Фармоишҳои ман',
+            'done-next': 'Менеҷер фармоишро тасдиқ мекунад, курьер пеш аз омадан занг мезанад. Ҳолат — дар «Фармоишҳои ман».',
+            'cab': 'Кабинет', 'who-sub': 'Фиристанда дар фармоишҳои шумо', 'p-name': 'Ном ва насаб',
+            'p-phone': 'Телефон барои курьер', 'tg-num': 'Telegram ба {n} пайваст аст — курьер ба рақами боло занг мезанад',
+            'save': 'Нигоҳ доштан', 'saved': 'Нигоҳ дошта шуд', 'my-addr': 'Суроғаҳои ман', 'add-addr': '+ Илова кардани суроға',
+            'use-from': 'Аз куҷо', 'use-to': 'Ба куҷо', 'history': 'Таърихи фармоишҳо',
+            'f-all': 'Ҳама', 'f-live': 'Фаъол', 'f-done': 'Расонидашуда', 'none': 'Ҳоло холӣ',
+            'st-NEW': 'Фармоиш сохта шуд', 'st-SEARCH': 'Курьер ҷустуҷӯ мешавад', 'st-PICKUP': 'Курьер ба нуқтаи гирифтан меравад',
+            'st-TRANSIT': 'Курьер ба қабулкунанда меравад', 'st-HANDOVER': 'Курьер фармоишро месупорад',
+            'st-DELIVERED': 'Расонида шуд', 'st-CANCELLED': 'Бекор шуд',
+            'repeat': 'Такрор', 'support': 'Дастгирӣ', 'recv': 'Қабулкунанда', 'parcel': 'Баста',
+            'repeated': 'Форма мисли фармоиши {id} пур шуд', 'addr-set': 'Суроға гузошта шуд',
+            'new-addr': 'Аломатро дар харита гузоред ва хонаро нависед (дар версияи корӣ)',
+            'support-t': 'Дастгирӣ — тугма дар менюи бот',
+            'miss': 'Майдонро пур кунед', 'too-large': 'Баста калон аст — танҳо тавассути сайт',
+            'eta-day': 'дар рӯзи фармоиш', 'eta-1-2': '1–2 рӯз', 'eta-2-3': '2–3 рӯз', 'eta-3-4': '3–4 рӯз',
+            'eta-2-4': '2–4 рӯз', 'eta-to-4': 'то 4 рӯз', 'eta-5plus': 'аз 5 рӯз', 'eta': 'Мӯҳлат:',
+            'no-geo': 'Ҷойгиршавӣ муайян нашуд', 'sent': 'Санҷиш: фармоиш ҷамъ шуд'
+        }
+    };
+    T.tj['sec-parcel'] = 'Баста';
+    T.tj['size-docs'] = 'Ҳуҷҷатҳо'; T.tj['size-s'] = 'Хурд'; T.tj['size-m'] = 'Миёна'; T.tj['size-l'] = 'Калон';
+    T.tj['own-size'] = 'Андозаи дақиқро нишон додан'; T.tj['change'] = 'Тағйир додан'; T.tj['deliv'] = 'Расонидан';
+    T.tj['tariff'] = '{b} TJS то 5 кг, баъд +{k} TJS барои ҳар кг';
+    T.tj['limits'] = 'То 30 кг ва на зиёда аз 50 × 50 × 30 см';
+    var lang = 'ru';
+    function t(k) { return T[lang][k] || T.ru[k] || k; }
+    function setLang(l) {
+        lang = l;
+        ['ru', 'tj'].forEach(function (x) { document.getElementById('lang-' + x).setAttribute('aria-pressed', String(x === l)); });
+        document.querySelector('.lang').classList.toggle('tj', l === 'tj');
+        document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
+        document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.dataset.i18nPh); });
+        updateUi();
+        calc();
+        if (document.getElementById('cab').classList.contains('on')) renderCab();
+    }
+
+    // ── тарифы: копия client_bot.DIRECTIONS ──
+    var GROUPS = [
+        ['Душанбе', 20, 3, 'eta-day', ['Душанбе']],
+        ['Хатлон', 30, 5, 'eta-1-2', ['Бохтар', 'Куляб', 'Дангара', 'Фархор']],
+        ['Хатлон', 50, 5, 'eta-2-3', ['Хатлон — другие направления']],
+        ['РРП', 30, 5, 'eta-1-2', ['РРП — стандартные направления']],
+        ['РРП', 40, 5, 'eta-3-4', ['Сангвор', 'Точикобод', 'Джиргатол', 'Тавильдара']],
+        ['Согд', 30, 5, 'eta-1-2', ['Худжанд']],
+        ['Согд', 50, 5, 'eta-2-3', ['Согд — другие направления']],
+        ['Согд', 60, 5, 'eta-2-3', ['Зарафшон', 'Мастчох', 'Пенджикент']],
+        ['ГБАО', 50, 5, 'eta-2-4', ['Хорог']],
+        ['ГБАО', 70, 5, 'eta-to-4', ['Районы возле Хорога']],
+        ['ГБАО', 100, 5, 'eta-5plus', ['Ишкошим', 'Мургоб']]
+    ];
+    var DIR = {}, REGIONS = [];
+    GROUPS.forEach(function (g) {
+        if (REGIONS.indexOf(g[0]) < 0) REGIONS.push(g[0]);
+        g[4].forEach(function (n) { DIR[n] = { region: g[0], base: g[1], perKg: g[2], eta: g[3] }; });
+    });
+    ['city_from', 'city_to'].forEach(function (id) {
+        document.getElementById(id).innerHTML = REGIONS.map(function (r) {
+            var o = Object.keys(DIR).filter(function (n) { return DIR[n].region === r; })
+                .map(function (n) { return '<option>' + n + '</option>'; }).join('');
+            return r === 'Душанбе' ? o : '<optgroup label="' + r + '">' + o + '</optgroup>';
+        }).join('');
+    });
+    function calc() {
+        var a = DIR[document.getElementById('city_from').value], b = DIR[document.getElementById('city_to').value];
+        var tr = a.base >= b.base ? a : b;
+        var w = parseFloat(document.getElementById('weight').value) || 0;
+        var price = tr.base + Math.max(0, Math.ceil(w - 5)) * tr.perKg;
+        var dims = ['size_l', 'size_w', 'size_h'].map(function (id) { return parseInt(document.getElementById(id).value, 10) || 0; })
+            .sort(function (a, b) { return b - a; });
+        document.getElementById('limits').classList.toggle('over', w > 30 || dims[0] > 50 || dims[1] > 50 || dims[2] > 30);
+        document.getElementById('sum').textContent = price + ' TJS';
+        document.getElementById('eta').textContent = t('tariff').replace('{b}', tr.base).replace('{k}', tr.perKg);
+        document.getElementById('dir-text').textContent = document.getElementById('city_from').value + ' → ' + document.getElementById('city_to').value;
+        document.getElementById('bar-eta').textContent = t('deliv') + ' · ' + t(tr.eta);
+        document.getElementById('tariff-note').textContent = tr.base + ' TJS до 5 кг';
+        return price;
+    }
+
+    // ── карта ──
+    var DUSHANBE = [38.5598, 68.7870];
+    // Зум пальцами/колесом — вокруг центра: иначе при приближении метка уезжала с дома
+    var map = L.map('map', { zoomControl: false, touchZoom: 'center', scrollWheelZoom: 'center', doubleClickZoom: 'center' })
+        .setView(DUSHANBE, 15);
+    map.attributionControl.setPrefix(false);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+    // active — какую точку сейчас ставим ('from' / 'to'); null — обе закреплены,
+    // карту можно двигать свободно, точки стоят
+    var active = 'from', pts = { from: null, to: null }, marks = { from: null, to: null }, lines = [];
+    var COLORS = { from: getComputedStyle(document.documentElement).getPropertyValue('--ok').trim() || '#00875D',
+                   to: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#F77428' };
+
+    // Точка под остриём метки (метка стоит по центру видимой части карты)
+    function pinLatLng() {
+        var s = map.getSize();
+        return map.containerPointToLatLng([s.x / 2, s.y / 2]);
+    }
+
+    function dot(color) {
+        return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+            html: '<div style="width:18px;height:18px;border-radius:50%;background:' + color + ';border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>' });
+    }
+
+    function draw() {
+        ['from', 'to'].forEach(function (k) {
+            if (marks[k]) { map.removeLayer(marks[k]); marks[k] = null; }
+            if (k !== active && pts[k]) marks[k] = L.marker(pts[k], { icon: dot(COLORS[k]), interactive: false }).addTo(map);
+        });
+        lines.forEach(function (l) { map.removeLayer(l); }); lines = [];
+        if (pts.from && pts.to) {
+            // Бегущий оранжевый пунктир от «Откуда» к «Куда»
+            lines.push(L.polyline([pts.from, pts.to], { color: COLORS.to, weight: 4, dashArray: '10 10',
+                className: 'route-run', interactive: false }).addTo(map));
+        }
+    }
+
+    function updateUi() {
+        document.getElementById('row-from').classList.toggle('active', active === 'from');
+        document.getElementById('row-to').classList.toggle('active', active === 'to');
+        var pin = document.getElementById('pin');
+        pin.classList.toggle('off', !active);
+        if (active) {
+            pin.style.setProperty('--pin', COLORS[active]);
+            document.getElementById('pin-text').textContent = t(active === 'from' ? 'pin-from' : 'pin-to');
+        }
+        document.getElementById('sheet-hint').textContent = t(active ? 'hint-pin' : 'hint-done');
+        if (window.fitPeek && document.getElementById('scroller').scrollTop === 0) fitPeek();
+    }
+
+    // Нажали на адрес — ставим/меняем эту точку
+    function setActive(k) {
+        if (active === k) return;
+        active = k;
+        updateUi();
+        draw();
+        if (pts[k]) { suppress = true; map.setView(pts[k], Math.max(map.getZoom(), 16)); }
+        else { var c = pinLatLng(); pts[k] = [c.lat, c.lng]; draw(); geocodeSoon(k, c); }
+    }
+    function rowClick(ev, k) { if (!ev.target.closest('.pt-extra')) setActive(k); }
+
+    // Нажали на метку — точка закреплена; следующая незаданная — дальше, иначе свободная карта
+    function confirmPoint() {
+        if (!active) return;
+        var c = pinLatLng();
+        pts[active] = [c.lat, c.lng];
+        var next = active === 'from' && !document.getElementById('addr-to').value ? 'to' : null;
+        if (next) {
+            active = next; pts.to = [c.lat, c.lng]; updateUi(); draw(); geocodeSoon('to', c);
+            toast(t('now-to'));
+            return;
+        }
+        active = null;
+        updateUi(); draw();
+        if (pts.from && pts.to) {
+            suppress = true;
+            map.fitBounds([pts.from, pts.to], { paddingTopLeft: [50, 90],
+                paddingBottomRight: [50, 60], maxZoom: 17 });
+        }
+    }
+
+    // Перешли к любому другому полю (дом, подъезд, получатель…) — точку
+    // закрепляем там, где стоит метка, и отпускаем карту
+    function releaseActive() {
+        if (!active) return;
+        var c = pinLatLng();
+        pts[active] = [c.lat, c.lng];
+        active = null;
+        updateUi(); draw();
+    }
+    document.addEventListener('focusin', function (e) {
+        var el = e.target;
+        if (el.matches && el.matches('input, select, textarea') && !el.classList.contains('pt-input')) releaseActive();
+    });
+
+    var geoTimer = null, geoSeq = 0, suppress = false;
+    function geocodeSoon(k, c) {
+        document.getElementById('addr-' + k).value = '…';
+        clearTimeout(geoTimer);
+        geoTimer = setTimeout(function () { reverse(k, c); }, 700);
+    }
+    map.on('movestart', function () { if (active) document.getElementById('pin').classList.add('lift'); });
+    map.on('moveend', function () {
+        document.getElementById('pin').classList.remove('lift');
+        if (suppress) { suppress = false; return; }   // перелёт к уже выбранной точке — адрес не трогаем
+        if (!active) return;                           // точки закреплены — карта просто листается
+        var c = pinLatLng(), old = pts[active];
+        // зум вокруг центра даёт тот же центр — адрес заново не спрашиваем
+        if (old && map.distance(old, c) < 2) return;
+        pts[active] = [c.lat, c.lng];
+        draw();
+        geocodeSoon(active, c);
+    });
+
+    function reverse(k, c) {
+        var seq = ++geoSeq;
+        fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ru&lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6))
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (seq !== geoSeq) return;
+                var a = j.address || {};
+                // Только улица: номер дома из OSM часто неверный — его пишет клиент
+                var line = a.road || a.pedestrian || a.neighbourhood || a.suburb || a.quarter || '';
+                if (!line && j.display_name) line = j.display_name.split(',')[0];
+                document.getElementById('addr-' + k).value = line;
+                ownLookup(k, c, seq);
+                // город сам ставит направление, если такой есть в тарифах
+                var city = a.city || a.town || a.village || '';
+                if (DIR[city]) { document.getElementById(k === 'from' ? 'city_from' : 'city_to').value = city; calc(); }
+            })
+            .catch(function () { if (seq === geoSeq) document.getElementById('addr-' + k).value = ''; });
+    }
+
+    // Своя база адресов бота: что вписали клиенты и подтвердили курьеры рядом с
+    // этой точкой. Важнее OSM — подставляем и улицу, и дом. Работает только внутри
+    // Telegram (подпись initData), в Chrome просто молчит.
+    var API = 'https://rason.mavsim.com/api/addr';
+    function ownLookup(k, c, seq) {
+        if (!tg || !tg.initData) return;
+        fetch(API + '?lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6), { headers: { 'X-Tg-Init-Data': tg.initData } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) {
+                if (!j || !j.address || seq !== geoSeq) return;
+                document.getElementById('addr-' + k).value = j.address.street;
+                var h = document.getElementById('house-' + k);
+                if (!h.value.trim()) h.value = j.address.house;
+                toast(t(j.address.confirmed ? 'addr-known' : 'addr-prev'));
+            })
+            .catch(function () {});
+    }
+
+    function locateMe() {
+        function go(la, lo) { map.setView([la, lo], 17); }
+        function fail() { toast(t('no-geo')); }
+        var lm = tg && tg.LocationManager;
+        if (lm && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0')) {
+            lm.init(function () {
+                if (!lm.isLocationAvailable) return browser();
+                lm.getLocation(function (d) { d ? go(d.latitude, d.longitude) : fail(); });
+            });
+        } else browser();
+        function browser() {
+            if (!navigator.geolocation) return fail();
+            navigator.geolocation.getCurrentPosition(function (p) { go(p.coords.latitude, p.coords.longitude); }, fail,
+                { enableHighAccuracy: true, timeout: 10000 });
+        }
+    }
+
+    function order() {
+        var need = ['addr-from', 'house-from', 'addr-to', 'house-to', 'r_name', 'r_phone'];
+        for (var i = 0; i < need.length; i++) {
+            var el = document.getElementById(need[i]);
+            var bad = !el.value.trim() || el.value === '…' ||
+                (need[i] === 'r_phone' && el.value.replace(/\D/g, '').length !== 9);
+            if (bad) {
+                (el.closest('.pt-box, .tel') || el).classList.add('miss');
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (/^addr-/.test(need[i])) setActive(need[i].slice(-2) === 'to' ? 'to' : 'from');
+                setTimeout(function () { el.focus(); }, 350);
+                toast(t(need[i].indexOf('house') === 0 ? 'miss-house' : 'miss'));
+                return;
+            }
+            (el.closest('.pt-box, .tel') || el).classList.remove('miss');
+        }
+        var data = {
+            address_pickup: fullAddr('from'), pt_from: pts.from && pts.from.map(function (x) { return x.toFixed(6); }).join(','),
+            address_delivery: fullAddr('to'), pt_to: pts.to && pts.to.map(function (x) { return x.toFixed(6); }).join(','),
+            street_from: document.getElementById('addr-from').value, house_from: document.getElementById('house-from').value,
+            street_to: document.getElementById('addr-to').value, house_to: document.getElementById('house-to').value,
+            driver_comment: document.getElementById('comment').value,
+            r_name: document.getElementById('r_name').value, r_phone: phoneFull(),
+            city_pickup: document.getElementById('city_from').value, city_delivery: document.getElementById('city_to').value,
+            weight: document.getElementById('weight').value, price: calc()
+        };
+        var dims = ['size_l', 'size_w', 'size_h'].map(function (id) { return document.getElementById(id).value; });
+        var now = new Date(), p2 = function (n) { return String(n).padStart(2, '0'); };
+        var tm = p2(now.getHours()) + ':' + p2(now.getMinutes());
+        var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', rnd = '';
+        for (var r = 0; r < 4; r++) rnd += abc[Math.floor(Math.random() * abc.length)];
+        // Тот же формат ID, что на сервере (Z-ддмм-XXXX): бот проверит и при повторе выдаст свой
+        var id = 'Z-' + p2(now.getDate()) + p2(now.getMonth() + 1) + '-' + rnd;
+        data.order_id = id;
+        data.lang = lang;
+        data.s_name = PROFILE.name;
+        data.delivery_type = 'door';
+        data.sizes = dims.join('x');
+        data.pt_from = data.pt_from || '';
+        data.pt_to = data.pt_to || '';
+        // ориентир у бота обязателен — пустой не должен рубить заказ
+        if (!data.driver_comment.trim()) data.driver_comment = 'Нет';
+        HIST.unshift({ id: id, date: p2(now.getDate()) + '.' + p2(now.getMonth() + 1) + ' ' + tm, status: 'NEW', times: [tm],
+            from: data.address_pickup, to: data.address_delivery, cityFrom: data.city_pickup, cityTo: data.city_delivery,
+            rName: data.r_name, rPhone: document.getElementById('r_phone').value,
+            size: (document.querySelector('.size[aria-pressed="true"] b') || {}).textContent || 'Своя', weight: +data.weight, price: data.price });
+        save('beta_orders', HIST.slice(0, 30));
+        rememberAddr('from'); rememberAddr('to');
+        showDone(HIST[0]);
+        // экран «оформлен» ~2 с, потом sendData — Telegram закроет форму, бот пришлёт чек
+        if (tg && tg.initData) {
+            document.getElementById('done-acts').style.display = 'none';
+            setTimeout(function () { tg.sendData(JSON.stringify(data)); }, 2000);
+        }
+    }
+
+    // «Мои адреса» — последние адреса из заказов (точка + улица + дом), до 5
+    function rememberAddr(k) {
+        if (!pts[k]) return;
+        var v = function (id) { return document.getElementById(id + '-' + k).value.trim(); };
+        var a = { icon: '📍', title: v('addr'), street: v('addr'), house: v('house'), porch: v('porch'), lat: pts[k][0], lon: pts[k][1] };
+        ADDRS = ADDRS.filter(function (x) { return !(x.street === a.street && x.house === a.house); });
+        ADDRS.unshift(a);
+        ADDRS = ADDRS.slice(0, 5);
+        save('beta_addrs', ADDRS);
+    }
+
+    function support() {
+        // «Поддержка» — кнопка в меню бота: закрываем форму, клиент окажется там
+        if (tg && tg.initData) tg.close(); else toast(t('support-t'));
+    }
+
+    function showDone(o) {
+        document.getElementById('done-id').textContent = o.id;
+        var pt = function (k, cls) {
+            var v = function (id) { return document.getElementById(id + '-' + k).value.trim(); };
+            var extra = [v('house') && t('w-house') + ' ' + v('house'), v('porch') && t('w-porch') + ' ' + v('porch')].filter(Boolean).join(' · ');
+            return '<div class="done-pt ' + cls + '"><span class="cap">' + t(k === 'from' ? 'use-from' : 'use-to') + '</span>' +
+                '<span class="st">' + esc(v('addr')) + '</span>' + (extra ? '<span class="hs">' + esc(extra) + '</span>' : '') + '</div>';
+        };
+        document.getElementById('done-route').innerHTML = pt('from', 'a') + pt('to', 'b');
+        document.getElementById('done-eta').textContent = document.getElementById('bar-eta').textContent;
+        document.getElementById('done-price').textContent = o.price + ' TJS';
+        clearTimeout(toast.t); document.getElementById('fb-toast').style.display = 'none';
+        var d = document.getElementById('done');
+        d.classList.remove('on'); void d.offsetWidth; d.classList.add('on');   // перезапуск анимации
+        try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch (e) {}
+    }
+    function closeDone() { document.getElementById('done').classList.remove('on'); }
+
+    // «улица Бехзод, д. 8, кв. 4, подъезд 2» — подъезд в адрес, т.к. отдельное поле
+    // подъезда Relog молча теряет
+    function fullAddr(k) {
+        var v = function (id) { return document.getElementById(id + '-' + k).value.trim(); };
+        return [v('addr'), v('house') && 'д. ' + v('house'), v('porch') && 'подъезд ' + v('porch')].filter(Boolean).join(', ');
+    }
+
+    // Размер карточкой: ставит габариты, точные можно поправить в «Указать точные размеры»
+    var SIZES = { docs: [30, 20, 2], s: [20, 15, 10], m: [40, 30, 20], l: [50, 50, 30] };
+    function setSize(k) {
+        var d = SIZES[k];
+        ['size_l', 'size_w', 'size_h'].forEach(function (id, i) { document.getElementById(id).value = d[i]; });
+        markSize(k);
+        calc();
+    }
+    function markSize(k) {
+        document.querySelectorAll('.size').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.size === k)); });
+    }
+    function ownSize() {
+        var v = ['size_l', 'size_w', 'size_h'].map(function (id) { return +document.getElementById(id).value || 0; }).join(',');
+        var k = Object.keys(SIZES).filter(function (x) { return SIZES[x].join(',') === v; })[0];
+        markSize(k || '');
+        calc();
+    }
+    function stepW(d) {
+        var el = document.getElementById('weight');
+        var w = (parseFloat(el.value) || 0) + d;
+        el.value = Math.max(0.5, Math.min(30, Math.round(w * 2) / 2));
+        calc();
+    }
+    // Номер Таджикистана: +992 и ровно 9 цифр. Только цифры, лишнее не впишется,
+    // вставленный «+992 90 123 45 67» / «992901234567» сам обрежется до 9.
+    function fmtPhone(el) {
+        var d = el.value.replace(/\D/g, '');
+        if (d.length > 9 && d.indexOf('992') === 0) d = d.slice(3);
+        d = d.slice(0, 9);
+        var parts = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean);
+        el.value = parts.join(' ');
+    }
+    function phoneFull() {
+        var d = document.getElementById('r_phone').value.replace(/\D/g, '');
+        return d ? '+992' + d : '';
+    }
+
+    // ── Кабинет: профиль — из регистрации в боте (?fio=&phone=), история и адреса —
+    // в localStorage этой страницы, статусы накатываются из ?d= (их шлёт бот) ──
+    var Q = new URLSearchParams(location.search);
+    var PROFILE = { name: Q.get('fio') || '', phone: (Q.get('phone') || '').replace(/\D/g, '').slice(-9) };
+    function load(k) { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { return []; } }
+    function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+    var ADDRS = load('beta_addrs');
+    // Шесть шагов заказа (решение 01.10). Наш статус → шаг: пока по «Лист1»,
+    // шаги забора из вебхуков Relog добавим следующим этапом.
+    var STEPS = ['NEW', 'SEARCH', 'PICKUP', 'TRANSIT', 'HANDOVER', 'DELIVERED'];
+    var BADGE = { NEW: 's-new', SEARCH: 's-wait', PICKUP: 's-taken', TRANSIT: 's-transit', HANDOVER: 's-transit', DELIVERED: 's-done', CANCELLED: 's-cancel' };
+    var FROM_SHEET = { NEW: 'NEW', READY_FOR_DRIVERS: 'SEARCH', TAKEN: 'SEARCH', IN_TRANSIT: 'TRANSIT', DELIVERED: 'DELIVERED', CANCELLED: 'CANCELLED' };
+    var HIST = load('beta_orders');
+    (function liveStatuses() {
+        try {
+            var raw = Q.get('d');
+            if (!raw) return;
+            var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            b64 += '='.repeat((4 - b64.length % 4) % 4);
+            var bytes = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+            var byId = {};
+            (JSON.parse(new TextDecoder('utf-8').decode(bytes)).orders || []).forEach(function (o) { byId[o.id] = FROM_SHEET[o.status]; });
+            HIST.forEach(function (o) {
+                var st = byId[o.id];
+                if (st && st !== o.status) o.status = st;
+            });
+            save('beta_orders', HIST);
+        } catch (e) { console.error('Статусы заказов:', e); }
+    })();
+    var hFilter = 'all', openOrd = null;
+
+    function openCab() {
+        // активные сверху — сортируем при открытии, а не при каждом обновлении,
+        // иначе доставленный заказ уезжал вниз прямо во время анимации
+        HIST.sort(function (a, b) { return isLive(b) - isLive(a); });
+        document.getElementById('p-name').value = PROFILE.name;
+        var pp = document.getElementById('p-phone'); pp.value = PROFILE.phone; fmtPhone(pp);
+        renderCab();
+        var c = document.getElementById('cab'); c.classList.add('on'); c.setAttribute('aria-hidden', 'false'); c.scrollTop = 0;
+    }
+    function closeCab() { var c = document.getElementById('cab'); c.classList.remove('on'); c.setAttribute('aria-hidden', 'true'); }
+
+    function esc(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : v; return d.innerHTML; }
+    function initials(n) { return n.split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase(); }
+
+    function renderCab() {
+        document.getElementById('who-name').textContent = PROFILE.name;
+        document.getElementById('ava').textContent = initials(PROFILE.name);
+        document.getElementById('addrs-card').style.display = ADDRS.length ? '' : 'none';
+        document.getElementById('addrs').innerHTML = ADDRS.map(function (a, i) {
+            return '<div class="addr"><span class="addr-ic">' + a.icon + '</span>' +
+                '<span class="addr-t"><b>' + esc(a.title) + '</b><span>' + esc('д. ' + a.house + (a.porch ? ', подъезд ' + a.porch : '')) + '</span></span>' +
+                '<span class="addr-use" onclick="useAddr(' + i + ',\'from\')">' + t('use-from') + '</span>' +
+                '<span class="addr-use" onclick="useAddr(' + i + ',\'to\')">' + t('use-to') + '</span></div>';
+        }).join('');
+        renderHist();
+    }
+
+    function useAddr(i, k) {
+        var a = ADDRS[i];
+        closeCab();
+        if (active) releaseActive();
+        pts[k] = [a.lat, a.lon];
+        document.getElementById('addr-' + k).value = a.street;
+        document.getElementById('house-' + k).value = a.house;
+        document.getElementById('porch-' + k).value = a.porch;
+        active = null; updateUi(); draw();
+        suppress = true; map.setView(pts[k], 17);
+        toast(t('addr-set'));
+    }
+
+    function setHF(f) {
+        hFilter = f;
+        document.querySelectorAll('#h-chips button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === f)); });
+        renderHist();
+    }
+    function isLive(o) { return o.status !== 'DELIVERED' && o.status !== 'CANCELLED'; }
+
+    function ordCard(o) {
+        var live = isLive(o), idx = STEPS.indexOf(o.status);
+        var fin = o.status === 'DELIVERED', just = o.just;   // just — индекс шага, наступившего только что
+        var prog = (live || just != null) && o.status !== 'CANCELLED'
+            ? '<div class="prog' + (fin ? ' fin' : '') + '">' + STEPS.map(function (s, i) {
+                  return '<i class="' + (i <= idx ? 'on' : '') + (i === just ? ' grow' : '') + '"></i>'; }).join('') + '</div>' +
+              '<div class="prog-l' + (fin ? ' fin' : '') + (just != null ? ' just' : '') + '">' + t('st-' + o.status) + '</div>'
+            : '';
+        var tl = o.status === 'CANCELLED'
+            ? '<div class="tl"><div class="tl-i done"><span>' + t('st-NEW') + '</span><span>' + o.times[0] + '</span></div>' +
+              '<div class="tl-i cur" style="color:var(--bad)"><span>' + t('st-CANCELLED') + '</span><span></span></div></div>'
+            : '<div class="tl">' + STEPS.map(function (s, i) {
+                var cls = i < idx || o.status === 'DELIVERED' ? 'done' : (i === idx ? 'cur' : '');
+                if (i === just) cls += ' just';
+                return '<div class="tl-i ' + cls + '"><span>' + t('st-' + s) + '</span><span>' + (o.times[i] || '') + '</span></div>';
+            }).join('') + '</div>';
+        return '<div class="ord' + (live ? ' live' : '') + (openOrd === o.id ? ' open' : '') + '" onclick="toggleOrd(\'' + o.id + '\')">' +
+            '<div class="ord-top"><span class="ord-id">' + o.id + '</span><span class="ord-date">· ' + o.date + '</span>' +
+            '<span class="st-badge ' + BADGE[o.status] + (just != null ? ' flash' : '') + '">' + t('st-' + o.status) + '</span></div>' +
+            '<div class="ord-route">' + esc(o.from) + ' <span class="arr">→</span> ' + esc(o.to) + '</div>' +
+            '<div class="ord-sub"><span>' + esc(o.cityFrom === o.cityTo ? o.cityFrom : o.cityFrom + ' → ' + o.cityTo) + '</span><b>' + o.price + ' TJS</b></div>' +
+            prog +
+            '<div class="ord-more" onclick="event.stopPropagation()">' + tl +
+                '<div class="kv2"><span>' + t('recv') + ':</span> ' + esc(o.rName) + ', +992 ' + esc(o.rPhone) + '<br>' +
+                '<span>' + t('parcel') + ':</span> ' + esc(o.size) + ', ' + o.weight + ' кг</div>' +
+                '<div class="ord-acts"><button onclick="support()">' + t('support') + '</button>' +
+                '<button class="rep" onclick="repeatOrd(\'' + o.id + '\')">' + t('repeat') + '</button>' +
+                '</div>' +
+            '</div></div>';
+    }
+    function renderHist() {
+        var list = HIST.filter(function (o) { return hFilter === 'all' || (hFilter === 'live' ? isLive(o) : o.status === 'DELIVERED'); });
+
+        document.getElementById('hist').innerHTML = list.length ? list.map(ordCard).join('') : '<div class="none">' + t('none') + '</div>';
+    }
+    function toggleOrd(id) { openOrd = openOrd === id ? null : id; renderHist(); }
+
+    // ── Смена статуса (в бою — пришёл новый статус от Relog/бота) ──
+    function advanceOrder(o) {
+        var idx = STEPS.indexOf(o.status);
+        if (idx < 0 || idx >= STEPS.length - 1) return false;
+        var now = new Date(), p2 = function (n) { return String(n).padStart(2, '0'); };
+        o.status = STEPS[idx + 1];
+        o.times[idx + 1] = p2(now.getHours()) + ':' + p2(now.getMinutes());
+        o.just = idx + 1;
+        renderHist();
+        setTimeout(function () { o.just = null; }, 900);   // анимации отыграли — дальше обычный вид
+        try {
+            if (o.status === 'DELIVERED') tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+            else tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred('light');
+        } catch (e) {}
+        return true;
+    }
+
+    function repeatOrd(id) {
+        var o = HIST.filter(function (x) { return x.id === id; })[0];
+        var split = function (a) { var m = a.match(/^(.*), д\. (.*)$/); return m ? [m[1], m[2]] : [a, '']; };
+        var f = split(o.from), to = split(o.to);
+        document.getElementById('addr-from').value = f[0]; document.getElementById('house-from').value = f[1];
+        document.getElementById('addr-to').value = to[0]; document.getElementById('house-to').value = to[1];
+        document.getElementById('r_name').value = o.rName; document.getElementById('r_phone').value = o.rPhone;
+        document.getElementById('city_from').value = o.cityFrom; document.getElementById('city_to').value = o.cityTo;
+        document.getElementById('weight').value = o.weight;
+        var k = { 'Документы': 'docs', 'Маленькая': 's', 'Средняя': 'm', 'Большая': 'l' }[o.size];
+        if (k) setSize(k); else calc();
+        if (active) releaseActive();
+        closeCab();
+        toast(t('repeated').replace('{id}', id));
+    }
+
+    function toast(msg) {
+        var el = document.getElementById('fb-toast');
+        el.textContent = msg; el.style.display = 'block';
+        clearTimeout(toast.t); toast.t = setTimeout(function () { el.style.display = 'none'; }, 2600);
+    }
+
+    // Шторка в свёрнутом виде — ровно до конца блока адресов + кнопка «Заказать»
+    function fitPeek() {
+        var sheet = document.querySelector('.sheet'), box = document.querySelector('.route-box');
+        var h = box.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 14 +
+                document.querySelector('.order-bar').offsetHeight;
+        var ph = document.getElementById('phone');
+        if (Math.abs((parseFloat(getComputedStyle(ph).getPropertyValue('--peek')) || 0) - h) > 2) {
+            ph.style.setProperty('--peek', Math.round(h) + 'px');
+            setTimeout(function () { map.invalidateSize({ pan: false }); }, 0);
+        }
+    }
+    window.addEventListener('resize', fitPeek);
+    document.addEventListener('input', function (e) { var el = e.target; if (el.classList) (el.closest('.pt-box, .tel') || el).classList.remove('miss'); });
+    document.getElementById('pin').style.setProperty('--pin', COLORS.from);
+    setLang(Q.get('lang') === 'tj' ? 'tj' : 'ru');
+    // первая точка — центр Душанбе, адрес подтянется сам
+    markSize('s');
+    fitPeek();
+    (function () { var c = pinLatLng(); pts.from = [c.lat, c.lng]; geocodeSoon('from', c); })();
+</script>
+</body>
+</html>
