@@ -841,58 +841,84 @@
     }
 
     // ── Поиск улицы по названию ──
-    // Photon (photon.komoot.io, данные OSM): в отличие от Nominatim разрешает
-    // подсказки при наборе. Ищем только дороги и только рядом с картой — иначе
-    // «Бехзод» находил памятник и улицы в других городах.
-    var suggTimer = {}, suggSeq = { from: 0, to: 0 };
-    var SKIP = { bus_stop: 1, platform: 1, stop: 1, crossing: 1, traffic_signals: 1, street_lamp: 1, give_way: 1 };
-    function ruStreet(n) {
-        // имена в OSM по Душанбе — по-таджикски; привычнее «улица …»
-        return n.replace(/^кӯчаи\s+/i, 'улица ').replace(/^хиёбони\s+/i, 'проспект ')
-                .replace(/^гузаргоҳи\s+/i, 'проезд ').replace(/^тупики\s+/i, 'тупик ');
+    // Свой справочник улиц из OSM (streets.json, tools/build_streets.py): Photon
+    // и Nominatim ищут только целые слова и не находят таджикское написание по
+    // русскому («Лахути» → «Лоҳутӣ»). Ищем прямо на телефоне — мгновенно и с первых
+    // букв; нормализация — та же, что в build_streets.norm.
+    var STREETS = null, streetsLoading = false;
+    function loadStreets(cb) {
+        if (STREETS) return cb && cb();
+        if (streetsLoading) return;
+        streetsLoading = true;
+        fetch('streets.json?v=1').then(function (r) { return r.json(); })
+            .then(function (d) {
+                STREETS = d.map(function (x) { return { name: x[0], keys: x[1].split('|').map(function (k) { return k.split(' '); }), lat: x[2], lon: x[3], city: x[4] }; });
+                cb && cb();
+            })
+            .catch(function () { streetsLoading = false; });
     }
+    var PREFIX = /^(кӯчаи|кучаи|кӯч\.|улица|ул\.?|хиёбони|проспект|пр-т|пр\.|гузаргоҳи|гузаргохи|проезд|тупики|тупик|майдони|площадь|бульвар|переулок|пер\.)\s*/i;
+    var SUBST = { 'ӯ': 'у', 'ӣ': 'и', 'ҳ': 'х', 'қ': 'к', 'ғ': 'г', 'ё': 'е', 'э': 'е', 'ы': 'и', 'о': 'а', 'ъ': '', 'ь': '', '.': ' ', ',': ' ', '-': ' ', '«': '', '»': '', '"': '' };
+    function norm(q) {
+        q = q.toLowerCase().replace(/ҷ/g, 'дж').trim().replace(PREFIX, '');
+        return q.replace(/[ӯӣҳқғёэыоъь.,\-«»"]/g, function (c) { return SUBST[c]; }).split(/\s+/).filter(Boolean);
+    }
+    function findStreets(q) {
+        // номер дома в строке («Рудаки 137») в поиск улицы не берём
+        var qs = norm(q).filter(function (t) { return !/^\d/.test(t); });
+        if (!qs.length || !STREETS) return [];
+        var c = map.getCenter(), seen = {}, out = [];
+        STREETS.forEach(function (st) {
+            var best = 0;
+            st.keys.forEach(function (words) {
+                var ok = qs.every(function (t) { return words.some(function (w) { return w.indexOf(t) === 0; }); });
+                if (ok) best = Math.max(best, words[0].indexOf(qs[0]) === 0 ? 2 : 1);  // совпало начало названия — выше
+            });
+            if (!best) return;
+            var d = Math.pow(st.lat - c.lat, 2) + Math.pow((st.lon - c.lng) * 0.78, 2);
+            out.push({ st: st, best: best, d: d });
+        });
+        out.sort(function (a, b) {
+            // рядом с картой (≈15 км) — сначала по совпадению, дальше — по расстоянию
+            var na = a.d < 0.02, nb = b.d < 0.02;
+            if (na !== nb) return na ? -1 : 1;
+            return (b.best - a.best) || (a.d - b.d);
+        });
+        return out.filter(function (x) {
+            var k = x.st.name + '|' + x.st.city;   // куски одной улицы — одной строкой
+            if (seen[k]) return false;
+            return (seen[k] = true);
+        }).slice(0, 6).map(function (x) { return { name: x.st.name, area: x.st.city, lat: x.st.lat, lon: x.st.lon }; });
+    }
+    var suggSeq = { from: 0, to: 0 };
     function suggest(k) {
         var q = document.getElementById('addr-' + k).value.trim(), box = document.getElementById('sugg-' + k);
-        clearTimeout(suggTimer[k]);
-        var seq = ++suggSeq[k];
+        suggSeq[k]++;
         // клиент печатает сам — запоздавший адрес по метке не должен затереть ввод
         clearTimeout(geoTimer[k]); geoSeq[k]++;
         document.getElementById('addr-' + k).classList.remove('loading');
-        if (q.length < 3) { box.innerHTML = ''; return; }
-        suggTimer[k] = setTimeout(function () {
-            var c = map.getCenter(), d = 0.25;
-            var url = 'https://photon.komoot.io/api/?limit=10&lang=default&osm_tag=highway&q=' + encodeURIComponent(q) +
-                '&lat=' + c.lat.toFixed(4) + '&lon=' + c.lng.toFixed(4) +
-                '&bbox=' + [c.lng - d, c.lat - d, c.lng + d, c.lat + d].map(function (x) { return x.toFixed(3); }).join(',');
-            fetch(url).then(function (r) { return r.json(); }).then(function (j) {
-                if (seq !== suggSeq[k]) return;
-                var seen = {}, items = [];
-                (j.features || []).forEach(function (f) {
-                    var p = f.properties || {};
-                    if (!p.name || SKIP[p.osm_value]) return;
-                    var name = ruStreet(p.name), area = p.district || p.locality || p.city || '';
-                    if (seen[name + '|' + area]) return;
-                    seen[name + '|' + area] = 1;
-                    items.push({ name: name, area: [area, p.city !== area ? p.city : ''].filter(Boolean).join(', '),
-                                 lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] });
-                });
-                box.innerHTML = items.slice(0, 5).map(function (it, i) {
-                    return '<button type="button" data-i="' + i + '">' + esc(it.name) + (it.area ? '<span>' + esc(it.area) + '</span>' : '') + '</button>';
-                }).join('');
-                box.querySelectorAll('button').forEach(function (b) {
-                    // mousedown, а не click: иначе поле теряет фокус раньше и список пропадает
-                    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
-                    b.addEventListener('click', function () { pickStreet(k, items[+b.dataset.i]); });
-                });
-            }).catch(function () {});
-        }, 350);
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        if (!STREETS) return loadStreets(function () { suggest(k); });
+        var items = findStreets(q);
+        box.innerHTML = items.map(function (it, i) {
+            return '<button type="button" data-i="' + i + '">' + esc(it.name) + (it.area ? '<span>' + esc(it.area) + '</span>' : '') + '</button>';
+        }).join('');
+        box.querySelectorAll('button').forEach(function (b) {
+            // mousedown, а не click: иначе поле теряет фокус раньше и список пропадает
+            b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            b.addEventListener('click', function () { pickStreet(k, items[+b.dataset.i]); });
+        });
     }
+    document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('pt-input')) loadStreets(); });
     // Выбрали улицу: метка на неё, клавиатура прячется, шторка сворачивается —
     // клиент двигает карту и ставит метку точно на свой дом
     function pickStreet(k, it) {
         document.getElementById('sugg-' + k).innerHTML = '';
         suggSeq[k]++;
-        var el = document.getElementById('addr-' + k);
+        var el = document.getElementById('addr-' + k), house = document.getElementById('house-' + k);
+        // «Рудаки 137» — номер дома сразу в поле «Дом»
+        var num = el.value.match(/\s(\d+[^\s,]*)/);
+        if (num && !house.value.trim()) house.value = num[1];
         el.value = it.name; el.classList.remove('loading');
         el.blur();
         if (active !== k) { active = k; updateUi(); }
