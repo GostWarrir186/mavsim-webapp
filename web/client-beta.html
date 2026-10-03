@@ -79,18 +79,29 @@
         width: 46px; height: 46px;
     }
 
-    /* Прокрутка: прозрачный верх пропускает касания на карту, шторка — нет */
+    /* Шторка — сама себе прокрутка. Раньше прокручивался прозрачный слой во весь
+       экран с pointer-events: none — в Chrome работало, а в Telegram на iPhone
+       шторка не листалась вообще. Свёрнута — высотой --peek; начали листать —
+       разворачивается почти на весь экран, вернулись наверх — сворачивается. */
     .scroller {
-        position: absolute; inset: 0; z-index: 10; overflow-y: auto; overscroll-behavior: contain;
-        pointer-events: none; scrollbar-width: none;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+        height: var(--peek); overflow-y: auto; overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch; scrollbar-width: none;
+        border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px rgba(0,0,0,.12);
+        transition: height .25s cubic-bezier(.3,.9,.4,1);
     }
+    .phone.open .scroller { height: calc(100% - 64px - env(safe-area-inset-top)); }
+    /* запас прокрутки: иначе у короткой формы развернулась — прокрутка кончилась —
+       свернулась — и так по кругу */
+    .phone.open .sheet { min-height: calc(100% + 48px); }
     .scroller::-webkit-scrollbar { display: none; }
-    .spacer { height: calc(100% - var(--peek)); pointer-events: none; }
+    .spacer { display: none; }
     .sheet {
-        pointer-events: auto; position: relative; min-height: calc(100% - 70px);
+        position: relative; min-height: 100%; box-sizing: border-box;
         background: var(--surface); border-radius: 22px 22px 0 0;
-        box-shadow: 0 -8px 24px rgba(0,0,0,.12); padding: 8px 14px 0;
+        padding: 8px 14px 0;
     }
+    .grab-zone { padding: 2px 0 6px; margin: -8px -14px 0; padding-top: 10px; cursor: pointer; }
     .grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 0 auto 12px; }
 
     /* Откуда / Куда */
@@ -426,7 +437,7 @@
     <div class="scroller" id="scroller">
         <div class="spacer"></div>
         <div class="sheet">
-            <div class="grab"></div>
+            <div class="grab-zone" onclick="toggleSheet()"><div class="grab"></div></div>
             <div class="sheet-hint" id="sheet-hint"></div>
 
             <div class="route-box">
@@ -1218,6 +1229,18 @@
         }
     }
     window.addEventListener('resize', fitPeek);
+    // Шторка: начали листать — развернули, вернулись к самому верху — свернули
+    (function () {
+        var sc = document.getElementById('scroller'), ph = document.getElementById('phone');
+        sc.addEventListener('scroll', function () {
+            if (sc.scrollTop > 8) ph.classList.add('open');
+            else if (sc.scrollTop <= 0) ph.classList.remove('open');
+        }, { passive: true });
+        window.toggleSheet = function () {
+            if (ph.classList.contains('open')) { sc.scrollTo({ top: 0, behavior: 'smooth' }); ph.classList.remove('open'); }
+            else { ph.classList.add('open'); sc.scrollTo({ top: 60, behavior: 'smooth' }); }
+        };
+    })();
     document.getElementById('phone').addEventListener('scroll', function () { this.scrollTop = 0; });
     // iOS при клавиатуре сдвигает страницу вверх — после неё возвращаем на место
     document.addEventListener('focusout', function () {
