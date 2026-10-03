@@ -205,8 +205,12 @@
     .dir-main b { display: block; font-size: 15px; font-weight: 700; }
     .dir-main span { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
     .link-btn { font: inherit; font-size: 13.5px; font-weight: 650; color: var(--accent); background: transparent; border: 0; cursor: pointer; padding: 6px 2px; }
-    .row2.dir-edit { display: none; margin-top: 12px; }
-    .row2.dir-edit.on { display: grid; }
+    /* Города: выезжают с подсветкой, иначе открытие было почти незаметно */
+    .row2.dir-edit { display: none; margin-top: 12px; padding: 12px; border-radius: 14px;
+                     background: var(--accent-soft); border: 1.5px solid var(--accent); }
+    .row2.dir-edit.on { display: grid; animation: dirIn .25s cubic-bezier(.3,.9,.4,1); }
+    .dir-edit .select { border-color: var(--accent); background-color: var(--surface); }
+    @keyframes dirIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
     .bar-eta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-3); margin: 0 2px 8px; }
     .bar-eta b { color: var(--ink-2); font-weight: 650; }
     .limits {
@@ -517,7 +521,7 @@
             <div class="sec">
                 <div class="dir">
                     <div class="dir-main"><b id="dir-text">Душанбе → Душанбе</b><span id="eta"></span></div>
-                    <button type="button" class="link-btn" onclick="document.getElementById('dir-edit').classList.toggle('on')" data-i18n="change">Изменить</button>
+                    <button type="button" class="link-btn" id="dir-btn" onclick="toggleDir()" data-i18n="change">Изменить</button>
                 </div>
                 <div class="row2 dir-edit" id="dir-edit">
                     <div class="field">
@@ -623,7 +627,7 @@
             'lbl-comment': 'Ориентир для курьера', 'ph-comment': 'Этаж, рядом с магазином, цвет ворот…',
             'sec-receiver': 'Получатель', 'ph-r-name': 'Имя получателя',
             'sec-parcel': 'Посылка', 'size-docs': 'Документы', 'size-s': 'Маленькая', 'size-m': 'Средняя', 'size-l': 'Большая',
-            'own-size': 'Указать точные размеры', 'change': 'Изменить', 'deliv': 'Доставка',
+            'own-size': 'Указать точные размеры', 'change': 'Изменить', 'done-dir': 'Готово', 'deliv': 'Доставка',
             'tariff': '{b} TJS до 5 кг, далее +{k} TJS за кг', 'limits': 'До 30 кг и не больше 50 × 50 × 30 см', 'lbl-weight': 'Вес, кг', 'lbl-dims': 'Габариты, см',
             'dim-l': 'Длина', 'dim-w': 'Ширина', 'dim-h': 'Высота',
             'sec-dir': 'Направление', 'lbl-from': 'Откуда', 'lbl-to': 'Куда',
@@ -684,7 +688,7 @@
     };
     T.tj['sec-parcel'] = 'Баста';
     T.tj['size-docs'] = 'Ҳуҷҷатҳо'; T.tj['size-s'] = 'Хурд'; T.tj['size-m'] = 'Миёна'; T.tj['size-l'] = 'Калон';
-    T.tj['own-size'] = 'Андозаи дақиқро нишон додан'; T.tj['change'] = 'Тағйир додан'; T.tj['deliv'] = 'Расонидан';
+    T.tj['own-size'] = 'Андозаи дақиқро нишон додан'; T.tj['change'] = 'Тағйир додан'; T.tj['done-dir'] = 'Тайёр'; T.tj['deliv'] = 'Расонидан';
     T.tj['tariff'] = '{b} TJS то 5 кг, баъд +{k} TJS барои ҳар кг';
     T.tj['limits'] = 'То 30 кг ва на зиёда аз 50 × 50 × 30 см';
     var lang = 'ru';
@@ -1021,6 +1025,22 @@
 
     // Размер карточкой: ставит габариты, точные можно поправить в «Указать точные размеры»
     var SIZES = { docs: [30, 20, 2], s: [20, 15, 10], m: [40, 30, 20], l: [50, 50, 30] };
+    // «Изменить» направление: города открываются над кнопкой «Заказать» —
+    // шторку разворачиваем и подкручиваем к ним, кнопка становится «Готово»
+    function toggleDir() {
+        var box = document.getElementById('dir-edit'), btn = document.getElementById('dir-btn');
+        var on = box.classList.toggle('on');
+        btn.dataset.i18n = on ? 'done-dir' : 'change';
+        btn.textContent = t(btn.dataset.i18n);
+        if (!on) return;
+        document.getElementById('phone').classList.add('open');
+        setTimeout(function () {
+            var sc = document.getElementById('scroller');
+            var bar = document.querySelector('.order-bar').offsetHeight;
+            var y = box.getBoundingClientRect().bottom - sc.getBoundingClientRect().bottom + bar + 16;
+            if (y > 0) sc.scrollBy({ top: y, behavior: 'smooth' });
+        }, 280);   // после разворота шторки (.25s), иначе считаем по старой высоте
+    }
     function setSize(k) {
         var d = SIZES[k];
         ['size_l', 'size_w', 'size_h'].forEach(function (id, i) { document.getElementById(id).value = d[i]; });
