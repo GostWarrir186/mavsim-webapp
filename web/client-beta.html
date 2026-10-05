@@ -6,7 +6,6 @@
 <title>Mavsim Rason</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="theme.css?v=5">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #d9dedb; }
 
@@ -20,30 +19,8 @@
         box-shadow: 0 0 40px rgba(0,0,0,.15);
     }
 
-    /* Карта заходит под скруглённый верх шторки на 24px — без серых уголков */
-    #map { position: absolute; top: 0; left: 0; right: 0; bottom: calc(var(--peek) - 24px); z-index: 0; }
-    .phone { --peek: 330px; }
-
-    /* Метка — в центре видимой части карты; двигается карта, а не метка */
-    .pin {
-        position: absolute; left: 50%; z-index: 5; pointer-events: none;
-        top: calc((100% - var(--peek) + 24px) / 2); transform: translate(-50%, -100%);
-        display: flex; flex-direction: column; align-items: center;
-        transition: transform .15s;
-    }
-    .pin.lift { transform: translate(-50%, calc(-100% - 10px)); }
-    .pin.off { display: none; }
-    .pin-bubble {
-        pointer-events: auto; cursor: pointer; border: 0; font: inherit;
-        display: flex; align-items: center; gap: 6px;
-        background: var(--pin, var(--ok)); color: #fff; font-size: 13px; font-weight: 700;
-        padding: 8px 13px; border-radius: 999px; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.25);
-    }
-    .pin-stick { width: 3px; height: 16px; background: var(--pin, var(--ok)); border-radius: 0 0 2px 2px; }
-    .pin-dot { width: 8px; height: 4px; border-radius: 50%; background: rgba(0,0,0,.3); margin-top: 1px; }
-
     .top {
-        position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+        position: absolute; top: 0; left: 0; right: 0; z-index: 6; background: var(--surface);
         padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
         display: flex; align-items: center; gap: 8px; pointer-events: none;
     }
@@ -74,38 +51,60 @@
         box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer; color: var(--ink);
     }
 
-    .locate {
-        position: absolute; right: 12px; bottom: calc(var(--peek) + 14px); z-index: 6;
-        width: 46px; height: 46px;
-    }
-
-    /* Шторка — сама себе прокрутка. Раньше прокручивался прозрачный слой во весь
-       экран с pointer-events: none — в Chrome работало, а в Telegram на iPhone
-       шторка не листалась вообще. Свёрнута — высотой --peek; начали листать —
-       разворачивается почти на весь экран, вернулись наверх — сворачивается. */
+    /* Без карты (2026-10-05): форма — обычная страница под шапкой */
     .scroller {
         position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
-        height: var(--peek); overflow-y: auto; overscroll-behavior: contain;
+        top: calc(60px + env(safe-area-inset-top)); border-top: 1px solid var(--border);
+        overflow-y: auto; overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch; scrollbar-width: none;
-        border-radius: 22px 22px 0 0; box-shadow: 0 -8px 24px rgba(0,0,0,.12);
-        transition: height .25s cubic-bezier(.3,.9,.4,1);
     }
-    .phone.open .scroller { height: calc(100% - 64px - env(safe-area-inset-top)); }
-    /* запас прокрутки: иначе у короткой формы развернулась — прокрутка кончилась —
-       свернулась — и так по кругу */
-    .phone.open .sheet { min-height: calc(100% + 48px); }
     .scroller::-webkit-scrollbar { display: none; }
     .spacer { display: none; }
     .sheet {
         position: relative; min-height: 100%; box-sizing: border-box;
-        background: var(--surface); border-radius: 22px 22px 0 0;
+        background: var(--surface);
         padding: 8px 14px 0;
     }
-    .grab-zone { padding: 2px 0 6px; margin: -8px -14px 0; padding-top: 10px; cursor: pointer; }
-    .grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 0 auto 12px; }
+    /* Заголовок вместо карты */
+    .hero { padding: 10px 2px 14px; }
+    .hero h1 { margin: 0; font-size: 25px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
+    .hero p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-3); }
 
-    /* Откуда / Куда */
-    .route-box { border-radius: 16px; background: var(--surface-2); padding: 4px; }
+    /* Откуда / Куда: точки, соединённые пунктиром, как маршрут в такси */
+    .route-box { border-radius: 16px; background: var(--surface-2); padding: 4px; position: relative; }
+    .pt-from { position: relative; }
+    .pt-from::after {
+        content: ''; position: absolute; z-index: 1; left: 17px; top: 42px; bottom: -24px;
+        border-left: 2px dashed var(--border-strong);
+    }
+    .pt-cap-line { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+    .pt-cap-line .pt-cap { flex: 1; min-width: 0; }
+    /* Город — прямо в строке адреса: без карты его больше никто не угадает */
+    .pt-city {
+        -webkit-appearance: none; appearance: none; border: 0; outline: 0; cursor: pointer;
+        font: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink-2);
+        background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2346534d' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;
+        border-radius: 999px; padding: 3px 24px 3px 10px; width: auto; max-width: 42%; text-overflow: ellipsis;
+        box-shadow: inset 0 0 0 1px var(--border);
+    }
+    .pt-row.active .pt-city { background-color: var(--surface-2); }
+    .swap {
+        width: 26px; height: 26px; flex: none; border: 0; border-radius: 50%; cursor: pointer;
+        background: var(--surface); color: var(--ink-2); display: grid; place-items: center;
+        box-shadow: inset 0 0 0 1px var(--border);
+    }
+    .swap:active { transform: rotate(180deg); transition: transform .2s; }
+    .route-note { font-size: 12.5px; color: var(--ink-3); margin: 8px 4px 0; }
+    /* Мои адреса — в одно касание */
+    .quick { display: flex; gap: 8px; overflow-x: auto; margin: 10px -14px 0; padding: 0 14px 2px; scrollbar-width: none; }
+    .quick::-webkit-scrollbar { display: none; }
+    .quick:empty { display: none; }
+    .quick button {
+        flex: none; max-width: 72%; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 650;
+        color: var(--ink); background: var(--surface-2); border-radius: 999px; padding: 8px 13px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .quick button:active { background: var(--accent-soft); }
     .pt-row {
         display: flex; align-items: flex-start; gap: 10px; padding: 7px 10px 8px; border-radius: 12px;
         border: 2px solid transparent; cursor: text; transition: border-color .15s, background .15s;
@@ -402,7 +401,6 @@
 
     .route-run { animation: route-run 2.2s linear infinite; }
     @keyframes route-run { to { stroke-dashoffset: -20; } }
-    .leaflet-control-attribution { font-size: 9px !important; }
 
     /* ── режим замечаний (только в прототипе) ── */
     .fb-btn {
@@ -422,17 +420,6 @@
 </head>
 <body>
 <div class="phone" id="phone">
-    <div id="map"></div>
-
-    <div class="pin" id="pin">
-        <button type="button" class="pin-bubble" id="pin-bubble" onclick="confirmPoint()">
-            <span id="pin-text">Забрать здесь</span>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        </button>
-        <div class="pin-stick"></div>
-        <div class="pin-dot"></div>
-    </div>
-
     <div class="top">
         <div class="chip"><img src="img/logo-mavsim-rason.png" alt="Mavsim Rason"></div>
         <div class="chip lang">
@@ -444,20 +431,20 @@
         </button>
     </div>
 
-    <button class="icon-btn locate" onclick="locateMe()" title="Я здесь">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>
-    </button>
-
     <div class="scroller" id="scroller">
         <div class="spacer"></div>
         <div class="sheet">
-            <div class="grab-zone" onclick="toggleSheet()"><div class="grab"></div></div>
-            <div class="sheet-hint" id="sheet-hint"></div>
+            <div class="hero">
+                <h1 data-i18n="hero-t">Куда отправим посылку?</h1>
+                <p data-i18n="hero-s">Курьер заберёт и привезёт. По Душанбе — в день заказа</p>
+            </div>
 
             <div class="route-box">
                 <div class="pt-row pt-from active" id="row-from" onclick="rowClick(event, 'from')">
+                    <span class="pt-dot"></span>
                     <span class="pt-text">
-                        <span class="pt-cap" data-i18n="cap-from">Откуда забрать</span>
+                        <span class="pt-cap-line"><span class="pt-cap" data-i18n="cap-from">Откуда забрать</span>
+                            <select class="pt-city" id="city_from" onchange="calc()" aria-label="Город"></select></span>
                         <input class="pt-input" id="addr-from" data-i18n-ph="ph-from" placeholder="Улица" autocomplete="off" onfocus="setActive('from')" oninput="suggest('from')">
                         <div class="sugg" id="sugg-from"></div>
                         <span class="pt-extra">
@@ -469,8 +456,13 @@
                     </span>
                 </div>
                 <div class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
+                    <span class="pt-dot"></span>
                     <span class="pt-text">
-                        <span class="pt-cap" data-i18n="cap-to">Куда доставить</span>
+                        <span class="pt-cap-line"><span class="pt-cap" data-i18n="cap-to">Куда доставить</span>
+                            <select class="pt-city" id="city_to" onchange="calc()" aria-label="Город"></select>
+                            <button type="button" class="swap" onclick="swapRoute()" data-i18n-title="swap" title="Поменять местами">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M21 16l-4 4-4-4"/></svg>
+                            </button></span>
                         <input class="pt-input" id="addr-to" data-i18n-ph="ph-to" placeholder="Куда везём?" autocomplete="off" onfocus="setActive('to')" oninput="suggest('to')">
                         <div class="sugg" id="sugg-to"></div>
                         <span class="pt-extra">
@@ -482,6 +474,8 @@
                     </span>
                 </div>
             </div>
+            <div class="quick" id="quick"></div>
+            <div class="route-note" id="eta"></div>
 
             <div class="sec tight">
                 <div class="field">
@@ -527,23 +521,6 @@
                 <div class="limits" id="limits">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
                     <span data-i18n="limits">До 30 кг и не больше 50 × 50 × 30 см</span>
-                </div>
-            </div>
-
-            <div class="sec">
-                <div class="dir">
-                    <div class="dir-main"><b id="dir-text">Душанбе → Душанбе</b><span id="eta"></span></div>
-                    <button type="button" class="link-btn" id="dir-btn" onclick="toggleDir()" data-i18n="change">Изменить</button>
-                </div>
-                <div class="row2 dir-edit" id="dir-edit">
-                    <div class="field">
-                        <label class="label" for="city_from" data-i18n="lbl-from">Откуда</label>
-                        <select class="select" id="city_from" onchange="calc()"></select>
-                    </div>
-                    <div class="field">
-                        <label class="label" for="city_to" data-i18n="lbl-to">Куда</label>
-                        <select class="select" id="city_to" onchange="calc()"></select>
-                    </div>
                 </div>
             </div>
 
@@ -619,7 +596,6 @@
 </div>
 <div class="fb-toast" id="fb-toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
     var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
     if (tg) {
@@ -631,6 +607,8 @@
     var T = {
         ru: {
             'cap-from': 'Откуда забрать', 'cap-to': 'Куда доставить',
+            'hero-t': 'Куда отправим посылку?', 'hero-s': 'Курьер заберёт и привезёт. По Душанбе — в день заказа',
+            'swap': 'Поменять местами', 'upto5': 'до 5 кг',
             'ph-from': 'Улица', 'ph-to': 'Куда везём?', 'ph-house': 'Дом, кв.', 'ph-porch': 'Подъезд', 'ph-porch-opt': 'если есть',
             'hint-pin': 'Поставьте метку точно на дом и нажмите на неё',
             'hint-done': 'Точки закреплены. Изменить — нажмите на адрес', 'addr-known': '✓ Адрес уже проверен нашими курьерами', 'addr-prev': '✓ Адрес из прошлых заказов — проверьте номер дома', 'now-to': 'Теперь — куда доставить',
@@ -666,6 +644,8 @@
         },
         tj: {
             'cap-from': 'Аз куҷо гирифтан', 'cap-to': 'Ба куҷо расонидан',
+            'hero-t': 'Бастаро ба куҷо мефиристем?', 'hero-s': 'Курьер мегирад ва мерасонад. Дар Душанбе — ҳамон рӯз',
+            'swap': 'Ҷойҳоро иваз кардан', 'upto5': 'то 5 кг',
             'ph-from': 'Кӯча', 'ph-to': 'Ба куҷо мебарем?', 'ph-house': 'Хона, ҳуҷра', 'ph-porch': 'Даромадгоҳ', 'ph-porch-opt': 'агар бошад',
             'hint-pin': 'Аломатро маҳз болои хона гузоред ва онро пахш кунед',
             'hint-done': 'Нуқтаҳо собит шуданд. Барои тағйир — суроғаро пахш кунед', 'addr-known': '✓ Суроға аллакай тасдиқ шудааст', 'addr-prev': '✓ Суроға аз фармоишҳои пешина — рақами хонаро санҷед', 'now-to': 'Акнун — ба куҷо расонидан',
@@ -676,7 +656,7 @@
             'sec-parcel': 'Бастa', 'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андоза, см',
             'dim-l': 'Дарозӣ', 'dim-w': 'Бар', 'dim-h': 'Баландӣ',
             'sec-dir': 'Самт', 'lbl-from': 'Аз куҷо', 'lbl-to': 'Ба куҷо',
-            'btn-order': 'Фармоиш додан',
+            'btn-order': 'Дархост додан',
             'w-house': 'хона', 'w-porch': 'даромадгоҳ',
             'done-t': 'Фармоиш қабул шуд', 'done-ok': 'Тайёр', 'done-my': 'Фармоишҳои ман',
             'done-next': 'Менеҷер фармоишро тасдиқ мекунад, курьер пеш аз омадан занг мезанад. Ҳолат — дар «Фармоишҳои ман».',
@@ -711,6 +691,7 @@
         document.querySelector('.lang').classList.toggle('tj', l === 'tj');
         document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
         document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.dataset.i18nPh); });
+        document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.dataset.i18nTitle); });
         updateUi();
         calc();
         if (document.getElementById('cab').classList.contains('on')) renderCab();
@@ -752,92 +733,33 @@
         document.getElementById('limits').classList.toggle('over', w > 30 || dims[0] > 50 || dims[1] > 50 || dims[2] > 30);
         document.getElementById('sum').textContent = price + ' TJS';
         document.getElementById('eta').textContent = t('tariff').replace('{b}', tr.base).replace('{k}', tr.perKg);
-        document.getElementById('dir-text').textContent = document.getElementById('city_from').value + ' → ' + document.getElementById('city_to').value;
         document.getElementById('bar-eta').textContent = t('deliv') + ' · ' + t(tr.eta);
-        document.getElementById('tariff-note').textContent = tr.base + ' TJS до 5 кг';
+        document.getElementById('tariff-note').textContent = tr.base + ' TJS ' + t('upto5');
         return price;
     }
 
-    // ── карта ──
+    // ── Адреса (без карты, 2026-10-05) ──
+    // Карту убрали: в Telegram на iPhone работала криво. Адрес — улица из своего
+    // справочника + дом/подъезд текстом; координаты шлём, только если они есть
+    // у сохранённого адреса из «Моих адресов».
     var DUSHANBE = [38.5598, 68.7870];
-    // Зум пальцами/колесом — вокруг центра: иначе при приближении метка уезжала с дома
-    var map = L.map('map', { zoomControl: false, touchZoom: 'center', scrollWheelZoom: 'center', doubleClickZoom: 'center' })
-        .setView(DUSHANBE, 15);
-    map.attributionControl.setPrefix(false);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-
-    // active — какую точку сейчас ставим ('from' / 'to'); null — обе закреплены,
-    // карту можно двигать свободно, точки стоят
-    var active = 'from', pts = { from: null, to: null }, marks = { from: null, to: null }, lines = [];
-    var COLORS = { from: getComputedStyle(document.documentElement).getPropertyValue('--ok').trim() || '#00875D',
-                   to: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#F77428' };
-
-    // Точка под остриём метки (метка стоит по центру видимой части карты)
-    function pinLatLng() {
-        var s = map.getSize();
-        return map.containerPointToLatLng([s.x / 2, s.y / 2]);
-    }
-
-    function dot(color) {
-        return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9],
-            html: '<div style="width:18px;height:18px;border-radius:50%;background:' + color + ';border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>' });
-    }
-
-    function draw() {
-        ['from', 'to'].forEach(function (k) {
-            if (marks[k]) { map.removeLayer(marks[k]); marks[k] = null; }
-            if (k !== active && pts[k]) marks[k] = L.marker(pts[k], { icon: dot(COLORS[k]), interactive: false }).addTo(map);
-        });
-        lines.forEach(function (l) { map.removeLayer(l); }); lines = [];
-        if (pts.from && pts.to) {
-            // Бегущий оранжевый пунктир от «Откуда» к «Куда»
-            lines.push(L.polyline([pts.from, pts.to], { color: COLORS.to, weight: 4, dashArray: '10 10',
-                className: 'route-run', interactive: false }).addTo(map));
-        }
-    }
-
+    var active = 'from', pts = { from: null, to: null };
     function updateUi() {
         document.getElementById('row-from').classList.toggle('active', active === 'from');
         document.getElementById('row-to').classList.toggle('active', active === 'to');
-        var pin = document.getElementById('pin');
-        pin.classList.toggle('off', !active);
-        if (active) {
-            pin.style.setProperty('--pin', COLORS[active]);
-            document.getElementById('pin-text').textContent = t(active === 'from' ? 'pin-from' : 'pin-to');
-        }
-        document.getElementById('sheet-hint').textContent = t(active ? 'hint-pin' : 'hint-done');
-        if (window.fitPeek && document.getElementById('scroller').scrollTop === 0) fitPeek();
     }
+    function setActive(k) { if (active !== k) { active = k; updateUi(); } }
+    function rowClick(ev, k) { if (!ev.target.closest('.pt-extra, .pt-cap-line')) setActive(k); }
 
-    // Нажали на адрес — ставим/меняем эту точку
-    function setActive(k) {
-        if (active === k) return;
-        active = k;
-        updateUi();
-        draw();
-        if (pts[k]) { suppress = true; map.setView(pts[k], Math.max(map.getZoom(), 16)); }
-        else { var c = pinLatLng(); pts[k] = [c.lat, c.lng]; draw(); geocodeSoon(k, c); }
-    }
-    function rowClick(ev, k) { if (!ev.target.closest('.pt-extra')) setActive(k); }
-
-    // Нажали на метку — точка закреплена; следующая незаданная — дальше, иначе свободная карта
-    function confirmPoint() {
-        if (!active) return;
-        var c = pinLatLng();
-        pts[active] = [c.lat, c.lng];
-        var next = active === 'from' && !document.getElementById('addr-to').value ? 'to' : null;
-        if (next) {
-            active = next; pts.to = [c.lat, c.lng]; updateUi(); draw(); geocodeSoon('to', c);
-            toast(t('now-to'));
-            return;
-        }
-        active = null;
-        updateUi(); draw();
-        if (pts.from && pts.to) {
-            suppress = true;
-            map.fitBounds([pts.from, pts.to], { paddingTopLeft: [50, 90],
-                paddingBottomRight: [50, 60], maxZoom: 17 });
-        }
+    function swapRoute() {
+        ['addr-', 'house-', 'porch-'].forEach(function (p) {
+            var a = document.getElementById(p + 'from'), b = document.getElementById(p + 'to'), v = a.value;
+            a.value = b.value; b.value = v;
+        });
+        var cf = document.getElementById('city_from'), ct = document.getElementById('city_to'), c = cf.value;
+        cf.value = ct.value; ct.value = c;
+        var pf = pts.from; pts.from = pts.to; pts.to = pf;
+        calc();
     }
 
     // ── Поиск улицы по названию ──
@@ -845,17 +767,19 @@
     // и Nominatim ищут только целые слова и не находят таджикское написание по
     // русскому («Лахути» → «Лоҳутӣ»). Ищем прямо на телефоне — мгновенно и с первых
     // букв; нормализация — та же, что в build_streets.norm.
-    var STREETS = null, streetsLoading = false;
+    var STREETS = null, streetsLoading = false, streetsWait = [];
     function loadStreets(cb) {
         if (STREETS) return cb && cb();
+        if (cb) streetsWait.push(cb);   // печатали, пока справочник грузился, — подсказка придёт после загрузки
         if (streetsLoading) return;
         streetsLoading = true;
         fetch('streets.json?v=1').then(function (r) { return r.json(); })
             .then(function (d) {
                 STREETS = d.map(function (x) { return { name: x[0], keys: x[1].split('|').map(function (k) { return k.split(' '); }), lat: x[2], lon: x[3], city: x[4] }; });
-                cb && cb();
+                var w = streetsWait; streetsWait = [];
+                w.forEach(function (f) { f(); });
             })
-            .catch(function () { streetsLoading = false; });
+            .catch(function () { streetsLoading = false; streetsWait = []; });
     }
     var PREFIX = /^(кӯчаи|кучаи|кӯч\.|улица|ул\.?|хиёбони|проспект|пр-т|пр\.|гузаргоҳи|гузаргохи|проезд|тупики|тупик|майдони|площадь|бульвар|переулок|пер\.)\s*/i;
     var SUBST = { 'ӯ': 'у', 'ӣ': 'и', 'ҳ': 'х', 'қ': 'к', 'ғ': 'г', 'ё': 'е', 'э': 'е', 'ы': 'и', 'о': 'а', 'ъ': '', 'ь': '', '.': ' ', ',': ' ', '-': ' ', '«': '', '»': '', '"': '' };
@@ -867,7 +791,7 @@
         // номер дома в строке («Рудаки 137») в поиск улицы не берём
         var qs = norm(q).filter(function (t) { return !/^\d/.test(t); });
         if (!qs.length || !STREETS) return [];
-        var c = map.getCenter(), seen = {}, out = [];
+        var c = { lat: DUSHANBE[0], lng: DUSHANBE[1] }, seen = {}, out = [];
         STREETS.forEach(function (st) {
             var best = 0;
             st.keys.forEach(function (words) {
@@ -879,7 +803,7 @@
             out.push({ st: st, best: best, d: d });
         });
         out.sort(function (a, b) {
-            // рядом с картой (≈15 км) — сначала по совпадению, дальше — по расстоянию
+            // рядом с Душанбе (≈15 км) — сначала по совпадению, дальше — по расстоянию
             var na = a.d < 0.02, nb = b.d < 0.02;
             if (na !== nb) return na ? -1 : 1;
             return (b.best - a.best) || (a.d - b.d);
@@ -894,9 +818,6 @@
     function suggest(k) {
         var q = document.getElementById('addr-' + k).value.trim(), box = document.getElementById('sugg-' + k);
         suggSeq[k]++;
-        // клиент печатает сам — запоздавший адрес по метке не должен затереть ввод
-        clearTimeout(geoTimer[k]); geoSeq[k]++;
-        document.getElementById('addr-' + k).classList.remove('loading');
         if (q.length < 2) { box.innerHTML = ''; return; }
         if (!STREETS) return loadStreets(function () { suggest(k); });
         var items = findStreets(q);
@@ -910,8 +831,8 @@
         });
     }
     document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('pt-input')) loadStreets(); });
-    // Выбрали улицу: метка на неё, клавиатура прячется, шторка сворачивается —
-    // клиент двигает карту и ставит метку точно на свой дом
+    // Выбрали улицу — курсор сразу в «Дом»; улица своя, координат нет: точку
+    // из справочника (середина улицы) курьеру не шлём, она его только запутает
     function pickStreet(k, it) {
         document.getElementById('sugg-' + k).innerHTML = '';
         suggSeq[k]++;
@@ -919,16 +840,9 @@
         // «Рудаки 137» — номер дома сразу в поле «Дом»
         var num = el.value.match(/\s(\d+[^\s,]*)/);
         if (num && !house.value.trim()) house.value = num[1];
-        el.value = it.name; el.classList.remove('loading');
-        el.blur();
-        if (active !== k) { active = k; updateUi(); }
-        pts[k] = [it.lat, it.lon];
-        suppress = true;
-        map.setView(pts[k], 17, { animate: false });
-        draw();
-        var ph = document.getElementById('phone'), sc = document.getElementById('scroller');
-        ph.classList.remove('open'); sc.scrollTo({ top: 0 });
-        toast(t('hint-pin'));
+        el.value = it.name;
+        pts[k] = null;
+        if (!house.value.trim()) house.focus(); else el.blur();
     }
     document.addEventListener('focusout', function (e) {
         if (e.target.classList && e.target.classList.contains('pt-input')) {
@@ -936,103 +850,6 @@
             setTimeout(function () { document.getElementById('sugg-' + k).innerHTML = ''; suggSeq[k]++; }, 150);
         }
     });
-
-    // Перешли к любому другому полю (дом, подъезд, получатель…) — точку
-    // закрепляем там, где стоит метка, и отпускаем карту
-    function releaseActive() {
-        if (!active) return;
-        var c = pinLatLng();
-        pts[active] = [c.lat, c.lng];
-        active = null;
-        updateUi(); draw();
-    }
-    document.addEventListener('focusin', function (e) {
-        var el = e.target;
-        if (el.matches && el.matches('input, select, textarea') && !el.classList.contains('pt-input')) releaseActive();
-    });
-
-    var geoTimer = {}, geoSeq = { from: 0, to: 0 }, suppress = false;
-    function geocodeSoon(k, c) {
-        // Старую улицу не стираем, пока не пришла новая — только приглушаем
-        var el = document.getElementById('addr-' + k);
-        if (!el.value.trim()) el.value = '…';
-        el.classList.add('loading');
-        clearTimeout(geoTimer[k]);
-        geoTimer[k] = setTimeout(function () { reverse(k, c); }, 700);
-    }
-    map.on('movestart', function () { if (active) document.getElementById('pin').classList.add('lift'); });
-    map.on('moveend', function () {
-        document.getElementById('pin').classList.remove('lift');
-        if (suppress) { suppress = false; return; }   // перелёт к уже выбранной точке — адрес не трогаем
-        if (!active) return;                           // точки закреплены — карта просто листается
-        var c = pinLatLng(), old = pts[active];
-        // Зум вокруг центра и подгонка размера окна (Telegram тянет его при свайпах,
-        // центр плывёт на полпикселя) — это не новое место: адрес заново не спрашиваем
-        if (old && map.latLngToContainerPoint(old).distanceTo(map.latLngToContainerPoint(c)) < 6) return;
-        pts[active] = [c.lat, c.lng];
-        draw();
-        geocodeSoon(active, c);
-    });
-
-    function reverse(k, c) {
-        var seq = ++geoSeq[k];
-        fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=ru&lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6))
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-                if (seq !== geoSeq[k]) return;
-                document.getElementById('addr-' + k).classList.remove('loading');
-                var a = j.address || {};
-                // Только улица: номер дома из OSM часто неверный — его пишет клиент
-                var line = a.road || a.pedestrian || a.neighbourhood || a.suburb || a.quarter || '';
-                if (!line && j.display_name) line = j.display_name.split(',')[0];
-                document.getElementById('addr-' + k).value = line;
-                ownLookup(k, c, seq);
-                // город сам ставит направление, если такой есть в тарифах
-                var city = a.city || a.town || a.village || '';
-                if (DIR[city]) { document.getElementById(k === 'from' ? 'city_from' : 'city_to').value = city; calc(); }
-            })
-            .catch(function () {
-                if (seq !== geoSeq[k]) return;
-                var el = document.getElementById('addr-' + k);
-                el.classList.remove('loading');
-                if (el.value === '…') el.value = '';
-            });
-    }
-
-    // Своя база адресов бота: что вписали клиенты и подтвердили курьеры рядом с
-    // этой точкой. Важнее OSM — подставляем и улицу, и дом. Работает только внутри
-    // Telegram (подпись initData), в Chrome просто молчит.
-    var API = 'https://rason.mavsim.com/api/addr';
-    function ownLookup(k, c, seq) {
-        if (!tg || !tg.initData) return;
-        fetch(API + '?lat=' + c.lat.toFixed(6) + '&lon=' + c.lng.toFixed(6), { headers: { 'X-Tg-Init-Data': tg.initData } })
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (j) {
-                if (!j || !j.address || seq !== geoSeq[k]) return;
-                document.getElementById('addr-' + k).value = j.address.street;
-                var h = document.getElementById('house-' + k);
-                if (!h.value.trim()) h.value = j.address.house;
-                toast(t(j.address.confirmed ? 'addr-known' : 'addr-prev'));
-            })
-            .catch(function () {});
-    }
-
-    function locateMe() {
-        function go(la, lo) { map.setView([la, lo], 17); }
-        function fail() { toast(t('no-geo')); }
-        var lm = tg && tg.LocationManager;
-        if (lm && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0')) {
-            lm.init(function () {
-                if (!lm.isLocationAvailable) return browser();
-                lm.getLocation(function (d) { d ? go(d.latitude, d.longitude) : fail(); });
-            });
-        } else browser();
-        function browser() {
-            if (!navigator.geolocation) return fail();
-            navigator.geolocation.getCurrentPosition(function (p) { go(p.coords.latitude, p.coords.longitude); }, fail,
-                { enableHighAccuracy: true, timeout: 10000 });
-        }
-    }
 
     function order() {
         var need = ['addr-from', 'house-from', 'addr-to', 'house-to', 'r_name', 'r_phone'];
@@ -1093,13 +910,15 @@
 
     // «Мои адреса» — последние адреса из заказов (точка + улица + дом), до 5
     function rememberAddr(k) {
-        if (!pts[k]) return;
         var v = function (id) { return document.getElementById(id + '-' + k).value.trim(); };
-        var a = { icon: '📍', title: v('addr'), street: v('addr'), house: v('house'), porch: v('porch'), lat: pts[k][0], lon: pts[k][1] };
+        if (!v('addr')) return;
+        var a = { icon: '📍', title: v('addr'), street: v('addr'), house: v('house'), porch: v('porch'),
+                  lat: pts[k] ? pts[k][0] : null, lon: pts[k] ? pts[k][1] : null };
         ADDRS = ADDRS.filter(function (x) { return !(x.street === a.street && x.house === a.house); });
         ADDRS.unshift(a);
         ADDRS = ADDRS.slice(0, 5);
         save('beta_addrs', ADDRS);
+        renderQuick();
     }
 
     function support() {
@@ -1136,20 +955,6 @@
     var SIZES = { docs: [30, 20, 2], s: [20, 15, 10], m: [40, 30, 20], l: [50, 50, 30] };
     // «Изменить» направление: города открываются над кнопкой «Заказать» —
     // шторку разворачиваем и подкручиваем к ним, кнопка становится «Готово»
-    function toggleDir() {
-        var box = document.getElementById('dir-edit'), btn = document.getElementById('dir-btn');
-        var on = box.classList.toggle('on');
-        btn.dataset.i18n = on ? 'done-dir' : 'change';
-        btn.textContent = t(btn.dataset.i18n);
-        if (!on) return;
-        document.getElementById('phone').classList.add('open');
-        setTimeout(function () {
-            var sc = document.getElementById('scroller');
-            var bar = document.querySelector('.order-bar').offsetHeight;
-            var y = box.getBoundingClientRect().bottom - sc.getBoundingClientRect().bottom + bar + 16;
-            if (y > 0) sc.scrollBy({ top: y, behavior: 'smooth' });
-        }, 280);   // после разворота шторки (.25s), иначе считаем по старой высоте
-    }
     function setSize(k) {
         var d = SIZES[k];
         ['size_l', 'size_w', 'size_h'].forEach(function (id, i) { document.getElementById(id).value = d[i]; });
@@ -1243,16 +1048,27 @@
         renderHist();
     }
 
+    // «Мои адреса» кнопками под маршрутом: в строку, которая сейчас выбрана
+    function renderQuick() {
+        var box = document.getElementById('quick');
+        box.innerHTML = ADDRS.map(function (a, i) {
+            // «Улица Садриддина Айни, 48а» → «Садриддина Айни, 48а»: номер дома важнее слова «улица»
+            var st = a.street.replace(/^(улица|ул\.|проспект|пр-т|кӯчаи|кучаи|хиёбони)\s+/i, '');
+            return '<button type="button" data-i="' + i + '">📍 ' + esc(st + (a.house ? ', ' + a.house : '')) + '</button>';
+        }).join('');
+        box.querySelectorAll('button').forEach(function (b) {
+            b.addEventListener('click', function () { useAddr(+b.dataset.i, active || 'from'); });
+        });
+    }
+
     function useAddr(i, k) {
         var a = ADDRS[i];
         closeCab();
-        if (active) releaseActive();
-        pts[k] = [a.lat, a.lon];
+        pts[k] = a.lat != null && a.lon != null ? [a.lat, a.lon] : null;
         document.getElementById('addr-' + k).value = a.street;
         document.getElementById('house-' + k).value = a.house;
         document.getElementById('porch-' + k).value = a.porch;
-        active = null; updateUi(); draw();
-        suppress = true; map.setView(pts[k], 17);
+        setActive(k);
         toast(t('addr-set'));
     }
 
@@ -1328,7 +1144,7 @@
         document.getElementById('weight').value = o.weight;
         var k = { 'Документы': 'docs', 'Маленькая': 's', 'Средняя': 'm', 'Большая': 'l' }[o.size];
         if (k) setSize(k); else calc();
-        if (active) releaseActive();
+        pts.from = pts.to = null;
         closeCab();
         toast(t('repeated').replace('{id}', id));
     }
@@ -1339,38 +1155,10 @@
         clearTimeout(toast.t); toast.t = setTimeout(function () { el.style.display = 'none'; }, 2600);
     }
 
-    // Шторка в свёрнутом виде — ровно до конца блока адресов + кнопка «Заказать»
     function typing() {
         var el = document.activeElement;
         return !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
     }
-    function fitPeek() {
-        // Пока открыта клавиатура, окно меняет размер — шторку не пересчитываем
-        if (typing()) return;
-        var sheet = document.querySelector('.sheet'), box = document.querySelector('.route-box');
-        var h = box.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 14 +
-                document.querySelector('.order-bar').offsetHeight;
-        var ph = document.getElementById('phone');
-        if (Math.abs((parseFloat(getComputedStyle(ph).getPropertyValue('--peek')) || 0) - h) > 2) {
-            ph.style.setProperty('--peek', Math.round(h) + 'px');
-            // pan (по умолчанию) держит центр карты на месте — метка не съезжает с дома
-            setTimeout(function () { map.invalidateSize({ animate: false }); }, 0);
-        }
-    }
-    window.addEventListener('resize', fitPeek);
-    // Шторка: начали листать — развернули, вернулись к самому верху — свернули
-    (function () {
-        var sc = document.getElementById('scroller'), ph = document.getElementById('phone');
-        sc.addEventListener('scroll', function () {
-            if (typing()) return;   // с клавиатурой шторка всегда развёрнута — не дёргаем
-            if (sc.scrollTop > 8) ph.classList.add('open');
-            else if (sc.scrollTop <= 0) ph.classList.remove('open');
-        }, { passive: true });
-        window.toggleSheet = function () {
-            if (ph.classList.contains('open')) { sc.scrollTo({ top: 0, behavior: 'smooth' }); ph.classList.remove('open'); }
-            else { ph.classList.add('open'); sc.scrollTo({ top: 60, behavior: 'smooth' }); }
-        };
-    })();
     document.getElementById('phone').addEventListener('scroll', function () { this.scrollTop = 0; });
     // Клавиатура: iPhone не сжимает окно Telegram, а сдвигает страницу — сверху
     // оставалась чёрная пустота, шторка прыгала. Пока печатают, форма занимает
@@ -1378,7 +1166,6 @@
     function fitKeyboard() {
         var ph = document.getElementById('phone'), vv = window.visualViewport;
         if (typing() && vv) {
-            ph.classList.add('open');
             ph.style.height = Math.round(vv.height) + 'px';
             window.scrollTo(0, 0);
         } else {
@@ -1391,15 +1178,13 @@
     }
     document.addEventListener('focusin', function () { if (typing()) setTimeout(fitKeyboard, 50); });
     document.addEventListener('focusout', function () {
-        setTimeout(function () { if (!typing()) { fitKeyboard(); window.scrollTo(0, 0); fitPeek(); } }, 120);
+        setTimeout(function () { if (!typing()) { fitKeyboard(); window.scrollTo(0, 0); } }, 120);
     });
     document.addEventListener('input', function (e) { var el = e.target; if (el.classList) (el.closest('.pt-box, .tel') || el).classList.remove('miss'); });
-    document.getElementById('pin').style.setProperty('--pin', COLORS.from);
     setLang(Q.get('lang') === 'tj' ? 'tj' : 'ru');
-    // первая точка — центр Душанбе, адрес подтянется сам
     markSize('s');
-    fitPeek();
-    (function () { var c = pinLatLng(); pts.from = [c.lat, c.lng]; geocodeSoon('from', c); })();
+    updateUi();
+    renderQuick();
 </script>
 </body>
 </html>
