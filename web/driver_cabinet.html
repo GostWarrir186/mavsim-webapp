@@ -105,7 +105,7 @@
             report: 'Скачать отчёт за неделю',
             all: 'Все доставки', reset: 'Сбросить',
             empty_all: 'Доставок за месяц нет', empty_day: 'В этот день доставок нет',
-            st_DELIVERED: 'Доставлен', st_IN_TRANSIT: 'В пути', st_TAKEN: 'Принят',
+            st_DELIVERED: 'Доставлен', st_IN_TRANSIT: 'В пути', st_TAKEN: 'Принят', st_NOT_DELIVERED: 'Не доставлен',
             pvz: 'ПВЗ', door: 'До двери',
             profile: 'Профиль', fio: 'ФИО',
             profile_hint: 'Смена ФИО требует подтверждения менеджера',
@@ -120,7 +120,7 @@
             report: 'Боргирии ҳисобот барои ҳафта',
             all: 'Ҳамаи фармоишҳо', reset: 'Бекор кардан',
             empty_all: 'Дар ин моҳ фармоише нест', empty_day: 'Дар ин рӯз фармоише нест',
-            st_DELIVERED: 'Расонида шуд', st_IN_TRANSIT: 'Дар роҳ', st_TAKEN: 'Гирифта шуд',
+            st_DELIVERED: 'Расонида шуд', st_IN_TRANSIT: 'Дар роҳ', st_TAKEN: 'Гирифта шуд', st_NOT_DELIVERED: 'Расонида нашуд',
             pvz: 'ПВЗ', door: 'То дар',
             profile: 'Профил', fio: 'Ному насаб',
             profile_hint: 'Тағйири ном тасдиқи менеҷерро талаб мекунад',
@@ -186,7 +186,7 @@
         };
     }
 
-    var TONE = { DELIVERED: 'badge badge-ok', IN_TRANSIT: 'badge badge-violet', TAKEN: 'badge badge-info' };
+    var TONE = { DELIVERED: 'badge badge-ok', IN_TRANSIT: 'badge badge-violet', TAKEN: 'badge badge-info', NOT_DELIVERED: 'badge badge-bad' };
 
     function daysGrid() {
         var out = '';
