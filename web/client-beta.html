@@ -592,6 +592,10 @@
 
 <script>
     var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
+    // Открыта ли форма в Telegram. initData не годится: при запуске кнопкой с
+    // клавиатуры бота он пустой, и заказ молча не уходил боту. Вне Telegram
+    // telegram-web-app.js ставит platform = 'unknown'.
+    var inTg = !!(tg && tg.platform && tg.platform !== 'unknown');
     if (tg) {
         tg.ready(); tg.expand();
         // Свайп вниз по шторке Telegram иначе принимает за «свернуть мини-приложение»
@@ -896,7 +900,7 @@
         rememberAddr('from'); rememberAddr('to');
         showDone(HIST[0]);
         // экран «оформлен» ~2 с, потом sendData — Telegram закроет форму, бот пришлёт чек
-        if (tg && tg.initData) {
+        if (inTg) {
             document.getElementById('done-acts').style.display = 'none';
             setTimeout(function () { tg.sendData(JSON.stringify(data)); }, 2000);
         }
@@ -917,7 +921,7 @@
 
     function support() {
         // «Поддержка» — кнопка в меню бота: закрываем форму, клиент окажется там
-        if (tg && tg.initData) tg.close(); else toast(t('support-t'));
+        if (inTg) tg.close(); else toast(t('support-t'));
     }
 
     function showDone(o) {
@@ -1141,7 +1145,7 @@
             if (!ok) return;
             var o = HIST.filter(function (x) { return x.id === id; })[0];
             if (o) { o.status = 'CANCELLED'; save('beta_orders', HIST); renderHist(); }
-            if (tg && tg.initData) tg.sendData(JSON.stringify({ action: 'cancel_order', order_id: id }));
+            if (inTg) tg.sendData(JSON.stringify({ action: 'cancel_order', order_id: id }));
             else toast(t('cancel-test'));
         };
         var q = t('cancel-q').replace('{id}', id);
