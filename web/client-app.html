@@ -1795,8 +1795,19 @@
     }
 
     // ── Проверка адреса ──
+    // «Маяковского 93/1» в строке улицы, поле «Дом» пустое — номер переносим в «Дом»
+    // (многие пишут адрес одной строкой). Только если номер в конце и дом не вписан.
+    function splitHouse(k) {
+        var se = document.getElementById('addr-' + k), he = document.getElementById('house-' + k);
+        var hv = he.value.trim();
+        if (hv && hv !== DASH) return;
+        var m = se.value.trim().match(/^(.*?[^\d\s,.])[\s,]+(?:д\.?|дом|х\.|хонаи)?\s*(\d+[а-яёӣӯa-z]?(?:\s*[\/-]\s*\d+[а-яёӣӯa-z]?)?)$/i);
+        if (!m) return;
+        se.value = m[1].trim(); he.value = m[2].replace(/\s+/g, '');
+    }
     function checkAddr(k) {
         if (!APP || (k === 'from' && located)) return;
+        splitHouse(k);
         var st = document.getElementById('addr-' + k).value.trim(), hs = document.getElementById('house-' + k).value.trim();
         if (!st || !hs || hs === DASH) { chkSet(k, ''); return; }
         if (pts[k] && PT_KEY[k] === addrKey(k)) return;          // этот адрес уже проверен
