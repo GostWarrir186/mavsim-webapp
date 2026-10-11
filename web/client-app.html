@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Mavsim Rason</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="stylesheet" href="theme.css?v=5">
 <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #d9dedb; }
@@ -356,6 +358,61 @@
     .cab .cab-top { padding-left: 18px; }
     .loading { text-align: center; color: var(--ink-3); font-size: 13.5px; padding: 26px 0; }
 
+    /* ── Точка забора и проверка адреса прямо в форме (прототип 10.10) ── */
+    .here {
+        margin-top: 8px; width: 100%; display: flex; align-items: center; gap: 8px; box-sizing: border-box;
+        border: 1.5px dashed var(--border-strong); background: transparent; border-radius: 12px; padding: 10px 12px;
+        font: inherit; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer; text-align: left;
+    }
+    .here small { display: block; font-size: 12px; font-weight: 600; color: var(--ink-3); margin-top: 1px; }
+    .here .ic-pin { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok); }
+    .here.busy { opacity: .6; pointer-events: none; }
+    .here.on { border-style: solid; border-color: var(--ok); background: var(--ok-soft); }
+    .here.on .ic-pin { background: var(--ok); color: #fff; }
+    .here .x { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--ink-3); padding: 4px 2px 4px 10px; }
+    .or { display: flex; align-items: center; gap: 8px; margin: 8px 2px 0; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+    .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    /* Геопозиция: улица не нужна, а дом/кв. и подъезд — нужны курьеру (поднимаются под кнопку) */
+    .pt-from.located .or, .pt-from.located .pt-input, .pt-from.located .chk { display: none; }
+    .pt-from .pt-text { display: flex; flex-direction: column; }
+    .pt-from.located .pt-extra { order: 10; }
+    .chk { display: none; margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 1.35; padding: 8px 10px; border-radius: 10px; }
+    .chk.on { display: block; }
+    .chk.wait { color: var(--ink-3); background: var(--surface); }
+    .chk.ok { color: var(--ok); background: var(--ok-soft); }
+    .chk.warn { color: var(--warn); background: var(--warn-soft); }
+    .chk .acts { display: flex; gap: 8px; margin-top: 8px; }
+    .chk .acts button { font: inherit; font-size: 13px; font-weight: 700; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; background: var(--surface); color: var(--ink); }
+    .chk .acts button.y { background: var(--ok); color: #fff; }
+    /* Предпросмотр точки: картинка из тайлов OSM, не живая карта (живая тряслась на iPhone) */
+    .mprev { position: relative; display: block; height: 130px; margin-top: 8px; border-radius: 10px; overflow: hidden; background: var(--surface-3); }
+    .mprev .tiles { position: absolute; width: 768px; height: 768px; display: grid; grid-template-columns: repeat(3, 256px); }
+    .mprev .tiles img { width: 256px; height: 256px; display: block; }
+    .mprev .pin { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -22px 0 0 -11px; }
+    .mprev .pin::before { content: ''; position: absolute; inset: 0; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pt-c); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+    .mprev .pin::after { content: ''; position: absolute; left: 7px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+    .mprev .open { position: absolute; right: 6px; bottom: 6px; font-size: 12px; font-weight: 700; color: var(--ink); background: var(--surface); border-radius: 999px; padding: 4px 10px; box-shadow: var(--shadow-sm); }
+    .mprev .attr { position: absolute; left: 6px; bottom: 4px; font-size: 9.5px; color: #555; background: rgba(255,255,255,.75); padding: 0 4px; border-radius: 4px; }
+    .here + .mprev { display: none; }
+    .here.on + .mprev { display: block; }
+    /* Уточнить точку: карта на весь экран, метка стоит по центру, двигается карта */
+    .picker { position: absolute; inset: 0; z-index: 70; background: var(--bg); display: none; flex-direction: column; }
+    .picker.on { display: flex; }
+    .picker .ptop { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: var(--surface); }
+    .picker .ptop b { font-size: 16px; }
+    .picker .pmap { position: relative; flex: 1; }
+    .picker #pmap { position: absolute; inset: 0; }
+    .picker .cpin { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -32px 0 0 -15px; z-index: 500; pointer-events: none; transition: transform .15s; }
+    .picker .cpin::before { content: ''; position: absolute; inset: 0; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pt-c, var(--accent)); box-shadow: 0 3px 8px rgba(0,0,0,.35); }
+    .picker .cpin::after { content: ''; position: absolute; left: 10px; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+    .picker.moving .cpin { transform: translateY(-8px); }
+    .picker .shadow { position: absolute; left: 50%; top: 50%; width: 10px; height: 4px; margin: -2px 0 0 -5px; border-radius: 50%; background: rgba(0,0,0,.3); z-index: 499; pointer-events: none; }
+    .picker .hint { position: absolute; left: 12px; right: 12px; top: 12px; z-index: 500; background: var(--surface); border-radius: 12px; padding: 9px 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); box-shadow: var(--shadow); text-align: center; }
+    .picker .pbot { padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); background: var(--surface); display: grid; gap: 8px; }
+    .mprev .open b { color: var(--accent); }
+    .demo-note { margin: 0 0 12px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; }
+    .demo-note b { color: var(--ink); }
+
     /* ── кабинет ── */
     .cab {
         position: absolute; inset: 0; bottom: var(--tabs-h); z-index: 40; background: var(--bg); overflow-y: auto;
@@ -563,6 +620,9 @@
                             <label class="pt-box opt">
                                 <input inputmode="numeric" pattern="[0-9]*" class="pt-house" id="porch-from" data-i18n-ph="ph-porch" placeholder="Подъезд" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
+                        <div class="chk" id="chk-from"></div>
+                        <div class="or" data-i18n="or">или</div>
+                        <button type="button" class="here" id="here-from" onclick="hereFrom(event)"></button>
                     </span>
                 </div>
                 <div class="pt-row pt-to" id="row-to" onclick="rowClick(event, 'to')">
@@ -577,6 +637,7 @@
                             <label class="pt-box opt">
                                 <input inputmode="numeric" pattern="[0-9]*" class="pt-house" id="porch-to" data-i18n-ph="ph-porch" placeholder="Подъезд" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
+                        <div class="chk" id="chk-to"></div>
                     </span>
                 </div>
             </div>
@@ -744,6 +805,18 @@
         </div>
     </section>
 
+    <section class="picker" id="picker" aria-hidden="true">
+        <div class="ptop">
+            <button class="icon-btn" onclick="pickClose()" aria-label="Назад">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <b id="pick-title"></b>
+        </div>
+        <div class="pmap"><div id="pmap"></div><span class="shadow"></span><span class="cpin"></span>
+            <div class="hint" data-i18n="pick-hint">Двигайте карту — метка остаётся по центру</div></div>
+        <div class="pbot"><button class="btn btn-primary btn-block" onclick="pickDone()" data-i18n="pick-ok">Да, здесь</button></div>
+    </section>
+
     <nav class="tabs" role="tablist">
         <button role="tab" id="tab-orders" aria-selected="false" onclick="tab('orders')">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
@@ -808,6 +881,17 @@
             'btn-order': 'Заказать',
             'w-house': 'дом', 'w-porch': 'подъезд',
             'done-t': 'Заказ оформлен', 'done-ok': 'Готово', 'done-my': 'Мои заказы',
+            'or': 'или', 'here': 'Я сейчас здесь', 'here-s': 'Курьер приедет точно на это место',
+            'here-busy': 'Определяем, где вы…', 'here-on': 'Вы здесь — курьер приедет сюда', 'here-phone': 'Точка с вашего телефона',
+            'here-moved': 'Точка поправлена вами', 'here-other': 'Другой адрес',
+            'here-denied': 'Нет доступа к геопозиции. Разрешите его в настройках Telegram — или впишите адрес.', 'here-settings': 'Открыть настройки',
+            'here-fail': 'Не получилось определить место — впишите адрес',
+            'chk-wait': 'Ищем адрес на карте…', 'chk-ok': '✓ Нашли на карте: {a}', 'chk-moved': '✓ Точка на карте — поправлена вами',
+            'chk-none': '⚠ Не нашли «{a}» на карте. Проверьте улицу и дом — или оставьте так, курьер позвонит уточнить.',
+            'chk-like': 'Нашли похожий: <b>{a}</b>. Это он?', 'chk-yes': 'Да, он', 'chk-no': 'Нет',
+            'chk-nope': 'Хорошо — курьер позвонит и уточнит адрес.', 'chk-err': 'Не получилось проверить адрес — заказ всё равно можно оформить.',
+            'map-move': 'Не там? <b>Подвинуть</b>', 'pick-from': 'Откуда забрать — уточните место', 'pick-to': 'Куда доставить — уточните место',
+            'pick-hint': 'Двигайте карту — метка остаётся по центру', 'pick-ok': 'Да, здесь', 'pick-saved': 'Точка сохранена — курьер приедет сюда',
             'tab-orders': 'Заказы', 'tab-new': 'Заказать', 'tab-me': 'Профиль', 'loading': 'Загружаем заказы…',
             'net-err': 'Нет связи с сервером. Попробуйте ещё раз', 'sending': 'Отправляем…',
             'support-go': 'Напишите вопрос в чат — ответим там', 'cancel-done': 'Заказ отменён',
@@ -850,6 +934,17 @@
             'btn-order': 'Дархост додан',
             'w-house': 'хона', 'w-porch': 'даромадгоҳ',
             'done-t': 'Фармоиш қабул шуд', 'done-ok': 'Тайёр', 'done-my': 'Фармоишҳои ман',
+            'or': 'ё', 'here': 'Ман ҳозир дар ҳамин ҷо', 'here-s': 'Курьер маҳз ба ҳамин ҷо меояд',
+            'here-busy': 'Ҷои шуморо муайян мекунем…', 'here-on': 'Шумо дар ин ҷо — курьер ба ин ҷо меояд', 'here-phone': 'Нуқта аз телефони шумо',
+            'here-moved': 'Нуқтаро шумо ислоҳ кардед', 'here-other': 'Суроғаи дигар',
+            'here-denied': 'Ба геолокатсия дастрасӣ нест. Дар танзимоти Telegram иҷозат диҳед — ё суроғаро нависед.', 'here-settings': 'Кушодани танзимот',
+            'here-fail': 'Ҷойро муайян карда нашуд — суроғаро нависед',
+            'chk-wait': 'Суроғаро дар харита меҷӯем…', 'chk-ok': '✓ Дар харита ёфтем: {a}', 'chk-moved': '✓ Нуқта дар харита — шумо ислоҳ кардед',
+            'chk-none': '⚠ «{a}»-ро дар харита наёфтем. Кӯча ва хонаро санҷед — ё ҳамин тавр монед, курьер занг зада мепурсад.',
+            'chk-like': 'Монандашро ёфтем: <b>{a}</b>. Ҳамин аст?', 'chk-yes': 'Ҳа, ҳамин', 'chk-no': 'Не',
+            'chk-nope': 'Хуб — курьер занг зада суроғаро мепурсад.', 'chk-err': 'Суроғаро санҷида нашуд — фармоишро ба ҳар ҳол додан мумкин аст.',
+            'map-move': 'Дар ин ҷо не? <b>Гузаронидан</b>', 'pick-from': 'Аз куҷо гирифтан — ҷойро аниқ кунед', 'pick-to': 'Ба куҷо расонидан — ҷойро аниқ кунед',
+            'pick-hint': 'Харитаро ҳаракат диҳед — нишона дар марказ мемонад', 'pick-ok': 'Ҳа, дар ҳамин ҷо', 'pick-saved': 'Нуқта нигоҳ дошта шуд — курьер ба ин ҷо меояд',
             'tab-orders': 'Фармоишҳо', 'tab-new': 'Фармоиш додан', 'tab-me': 'Профил', 'loading': 'Фармоишҳо бор мешаванд…',
             'net-err': 'Пайваст бо сервер нест. Боз кӯшиш кунед', 'sending': 'Фиристода мешавад…',
             'support-go': 'Саволро дар чат нависед — ҳамон ҷо ҷавоб медиҳем', 'cancel-done': 'Фармоиш бекор шуд',
@@ -887,6 +982,7 @@
         document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
         document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.dataset.i18nPh); });
         document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.dataset.i18nTitle); });
+        if (typeof PT_KEY !== 'undefined') hereRender();
         updateUi();
         calc();
         if (document.getElementById('cab').classList.contains('on')) renderCab();
@@ -1051,8 +1147,11 @@
     });
 
     function order() {
+        ['from', 'to'].forEach(function (k) {
+            if (pts[k] && !(k === 'from' && located) && PT_KEY[k] !== addrKey(k)) { setPt(k, null); chkSet(k, ''); }
+        });
         // обязательна только улица (05.10); дом и подъезд — «—», если пусто
-        var need = ['addr-from', 'addr-to', 'r_name', 'r_phone'];
+        var need = (located ? [] : ['addr-from']).concat(['addr-to', 'r_name', 'r_phone']);
         for (var i = 0; i < need.length; i++) {
             var el = document.getElementById(need[i]);
             var bad = !el.value.trim() || el.value === '…' ||
@@ -1242,6 +1341,7 @@
         document.getElementById('weight').value = 1;
         document.getElementById('own').open = false;
         pts.from = pts.to = null;
+        if (typeof PT_KEY !== 'undefined') geoReset();
         setSize('s');          // размер «Маленькая» и его габариты
         setActive('from');
         calc();
@@ -1259,10 +1359,16 @@
         document.getElementById('weight').value = 1;
         setSize('s');
         toast(t('autofilled'));
+        if (located) hereClear({ stopPropagation: function () {} });
+        addrChanged('from'); addrChanged('to');
     }
 
     function fullAddr(k) {
         var v = function (id) { return document.getElementById(id + '-' + k).value.trim(); };
+        if (k === 'from' && located) {     // точка с телефона: улицы нет, дом/кв. и подъезд — если вписали
+            var x = function (id) { var y = v(id); return y && y !== DASH ? y : ''; };
+            return 'точка на карте' + (x('house') ? ', д. ' + x('house') : '') + (x('porch') ? ', подъезд ' + x('porch') : '');
+        }
         // Всегда «улица, д. …, подъезд …» (город бот ставит сам впереди); пустое — «—»
         var d = function (id) { var x = v(id); return x && x !== DASH ? x : DASH; };
         return v('addr') + ', д. ' + d('house') + ', подъезд ' + d('porch');
@@ -1329,11 +1435,14 @@
     function hm(s) { return (s || '').slice(11, 16); }
     function fromServer(o) {
         var st = FROM_SHEET[o.status] || 'NEW', times = [hm(o.accepted_at)];
+        // Передан в Relog: у нас «взят» курьером «Relog», а курьера назначат там — для клиента это «ищем курьера»
+        var viaRelog = o.courier === 'Relog';
+        if (viaRelog && st === 'PICKUP') st = 'SEARCH';
         if (st === 'DELIVERED') times[5] = hm(o.delivered_at);
         return { id: o.id, date: (o.accepted_at || '').slice(0, 5) + ' ' + hm(o.accepted_at), status: st, times: times,
                  from: o.addr_from, to: o.addr_to, cityFrom: o.city_from, cityTo: o.city_to,
                  rName: o.r_name, rPhone: (o.r_phone || '').replace(/\D/g, '').replace(/^992(?=\d{9}$)/, '').replace(/^(\d{2})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4'), size: '',
-                 weight: o.weight, price: o.price, courier: o.courier };
+                 weight: o.weight, price: o.price, courier: viaRelog ? '' : o.courier };
     }
     function loadOrders(first) {
         if (!APP) return;
@@ -1442,6 +1551,7 @@
         document.getElementById('porch-' + k).value = a.porch;
         setActive(k);
         toast(t('addr-set'));
+        addrChanged(k);
     }
 
     function setHF(f) {
@@ -1554,6 +1664,7 @@
         if (k) setSize(k); else calc();
         pts.from = pts.to = null;
         tab('new');
+        addrChanged('from'); addrChanged('to');
         toast(t('repeated').replace('{id}', id));
     }
 
@@ -1594,6 +1705,182 @@
     updateUi();
     renderQuick();
     loadOrders(true);
+
+    // ════ Точки прямо в форме (11.10): «Я сейчас здесь», проверка адреса, карта ════
+    // Геопозиция — Telegram.WebApp.LocationManager (Bot API 8.0), иначе браузерная.
+    // Адрес — POST /api/client/geocode → геокодер Relog у бота (лимит 1500/день на
+    // компанию, бот считает и останавливается). Обратный геокодер не нужен:
+    // точка с телефона и так точная. Заказ из приложения в чате о точках не спрашивает.
+    var located = false, hereNote = '';
+    var LM = tg && tg.LocationManager && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') ? tg.LocationManager : null;
+    var CAN_LOCATE = APP && (!!LM || !!(navigator.geolocation));
+
+    // Точка «принадлежит» адресу: ключ «город|улица|дом» на момент, когда её
+    // нашли или поправили. Адрес поменялся любым путём — старая точка не действует.
+    var PT_KEY = { from: '', to: '' }, chkSeq = { from: 0, to: 0 }, SIM = {};
+    function addrKey(k) {
+        var v = function (id) { return document.getElementById(id).value.trim().toLowerCase(); };
+        return [v('city_' + k), v('addr-' + k), v('house-' + k)].join('|');
+    }
+    function setPt(k, p) { pts[k] = p; PT_KEY[k] = p ? addrKey(k) : ''; }
+    function chkSet(k, cls, html) {
+        var el = document.getElementById('chk-' + k);
+        el.className = 'chk' + (cls ? ' on ' + cls : ''); el.innerHTML = html || '';
+    }
+    function addrChanged(k) {      // поля вписаны кодом («Повторить», «Заполнить всё»…) — перепроверить
+        if (k === 'from' && located) return;
+        chkSeq[k]++; setPt(k, null); chkSet(k, ''); checkAddr(k);
+    }
+    function geoReset() {
+        located = false; hereNote = '';
+        ['from', 'to'].forEach(function (k) { chkSeq[k]++; setPt(k, null); chkSet(k, ''); });
+        hereRender();
+    }
+
+    // ── «Я сейчас здесь» ──
+    function hereRender() {
+        var b = document.getElementById('here-from');
+        b.hidden = !CAN_LOCATE;
+        document.querySelector('#row-from .or').hidden = !CAN_LOCATE;
+        b.classList.toggle('on', located);
+        document.getElementById('row-from').classList.toggle('located', located);
+        var mp = b.nextElementSibling && b.nextElementSibling.classList.contains('mprev') ? b.nextElementSibling : null;
+        if (mp) mp.remove();
+        if (located) { var h = document.createElement('div'); h.innerHTML = mapPrev(pts.from, 'from'); b.after(h.firstChild); }
+        var pin = '<span class="ic-pin">📍</span>';
+        b.innerHTML = located
+            ? pin + '<span>' + t('here-on') + '<small>' + esc(hereNote) + '</small></span><span class="x" onclick="hereClear(event)">' + t('here-other') + '</span>'
+            : pin + '<span>' + t('here') + '<small>' + t('here-s') + '</small></span>';
+    }
+    function locate(cb) {          // cb([lat, lon]) | cb(null, 'denied') | cb(null)
+        if (LM) {
+            var go = function () {
+                if (!LM.isLocationAvailable) return cb(null);
+                LM.getLocation(function (d) {
+                    if (d && d.latitude != null) cb([+d.latitude.toFixed(6), +d.longitude.toFixed(6)]);
+                    else cb(null, LM.isAccessRequested && !LM.isAccessGranted ? 'denied' : '');
+                });
+            };
+            return LM.isInited ? go() : LM.init(go);
+        }
+        navigator.geolocation.getCurrentPosition(function (p) {
+            cb([+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6)]);
+        }, function (e) { cb(null, e && e.code === 1 ? 'denied' : ''); }, { enableHighAccuracy: true, timeout: 15000 });
+    }
+    function hereFrom() {
+        if (located) return;
+        var b = document.getElementById('here-from');
+        b.classList.add('busy'); b.querySelector('span:not(.ic-pin)').textContent = t('here-busy');
+        locate(function (p, why) {
+            b.classList.remove('busy');
+            if (!p) {
+                hereRender();
+                chkSet('from', 'warn', why === 'denied'
+                    ? t('here-denied') + (LM ? '<div class="acts"><button onclick="LM.openSettings()">' + t('here-settings') + '</button></div>' : '')
+                    : t('here-fail'));
+                return;
+            }
+            located = true; hereNote = t('here-phone');
+            pts.from = p; PT_KEY.from = '';
+            chkSeq.from++; chkSet('from', '');
+            try { tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch (e) {}
+            hereRender(); setActive('to');
+        });
+    }
+    function hereClear(ev) {
+        if (ev) ev.stopPropagation();
+        located = false; hereNote = ''; setPt('from', null);
+        hereRender(); setActive('from');
+        setTimeout(function () { document.getElementById('addr-from').focus(); }, 50);
+    }
+
+    // ── Проверка адреса ──
+    function checkAddr(k) {
+        if (!APP || (k === 'from' && located)) return;
+        var st = document.getElementById('addr-' + k).value.trim(), hs = document.getElementById('house-' + k).value.trim();
+        if (!st || !hs || hs === DASH) { chkSet(k, ''); return; }
+        if (pts[k] && PT_KEY[k] === addrKey(k)) return;          // этот адрес уже проверен
+        var seq = ++chkSeq[k];
+        chkSet(k, 'wait', t('chk-wait'));
+        api('geocode', { city: document.getElementById('city_' + k).value, street: st, house: hs }).then(function (r) {
+            if (seq !== chkSeq[k]) return;
+            var f = r.ok && r.found;
+            if (!f) { setPt(k, null); chkSet(k, r.ok ? 'warn' : 'wait', r.ok ? t('chk-none').replace('{a}', esc(st + ' ' + hs)) : t('chk-err')); return; }
+            // Relog: «Душанбе, …, кӯчаи Беҳзод, 8» — дом последним; тот ли, что вписан
+            var name = f.addr.replace(/^[^,]*,\s*/, ''), last = (f.addr.match(/,\s*([^,]+)$/) || [])[1] || '';
+            var nrm = function (x) { return String(x).toLowerCase().replace(/[^0-9a-zа-яёӣӯҳқғҷ]/g, ''); };
+            if (nrm(last) === nrm(hs)) {
+                setPt(k, [f.lat, f.lon]);
+                chkSet(k, 'ok', t('chk-ok').replace('{a}', esc(name)) + mapPrev(pts[k], k));
+            } else {
+                SIM[k] = f;
+                chkSet(k, 'warn', t('chk-like').replace('{a}', esc(name)) + mapPrev([f.lat, f.lon], k) +
+                    '<div class="acts"><button class="y" onclick="simYes(\'' + k + '\')">' + t('chk-yes') + '</button>' +
+                    '<button onclick="simNo(\'' + k + '\')">' + t('chk-no') + '</button></div>');
+            }
+        }).catch(function () { if (seq === chkSeq[k]) chkSet(k, 'wait', t('chk-err')); });
+    }
+    function simYes(k) {
+        var f = SIM[k], last = ((f.addr.match(/,\s*([^,]+)$/) || [])[1] || '').trim();
+        if (/^\d/.test(last)) document.getElementById('house-' + k).value = last;
+        setPt(k, [f.lat, f.lon]);
+        chkSet(k, 'ok', t('chk-ok').replace('{a}', esc(f.addr.replace(/^[^,]*,\s*/, ''))) + mapPrev(pts[k], k));
+    }
+    function simNo(k) { setPt(k, null); chkSet(k, 'warn', t('chk-nope')); }
+
+    // ── Мини-карта: картинка из тайлов OSM (живая карта тряслась на iPhone, 03.10) ──
+    function mapPrev(p, k) {
+        var z = 17, n = Math.pow(2, z), lat = p[0] * Math.PI / 180;
+        var xt = (p[1] + 180) / 360 * n, yt = (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * n;
+        var tx = Math.floor(xt) - 1, ty = Math.floor(yt) - 1, img = '';
+        for (var j = 0; j < 3; j++) for (var i = 0; i < 3; i++)
+            img += '<img alt="" loading="lazy" src="https://tile.openstreetmap.org/' + z + '/' + (tx + i) + '/' + (ty + j) + '.png">';
+        var dx = Math.round((xt - tx) * 256), dy = Math.round((yt - ty) * 256);
+        return '<a class="mprev" href="#" onclick="pickOpen(\'' + k + '\'); return false">' +
+            '<span class="tiles" style="left:calc(50% - ' + dx + 'px);top:calc(50% - ' + dy + 'px)">' + img + '</span>' +
+            '<span class="pin"></span><span class="open">' + t('map-move') + '</span><span class="attr">© OpenStreetMap</span></a>';
+    }
+
+    // ── «Подвинуть»: карта на весь экран, метка по центру ──
+    var pmap = null, pickK = null, pickFrom = null;
+    function pickOpen(k) {
+        pickK = k;
+        pickFrom = pts[k] || (SIM[k] ? [SIM[k].lat, SIM[k].lon] : null);
+        if (!pickFrom || !window.L) return;
+        var pk = document.getElementById('picker');
+        pk.style.setProperty('--pt-c', k === 'from' ? 'var(--ok)' : 'var(--accent)');
+        document.getElementById('pick-title').textContent = t(k === 'from' ? 'pick-from' : 'pick-to');
+        pk.classList.add('on'); pk.setAttribute('aria-hidden', 'false');
+        if (!pmap) {
+            pmap = L.map('pmap', { zoomControl: false }).setView(pickFrom, 17);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(pmap);
+            pmap.on('movestart', function () { pk.classList.add('moving'); });
+            pmap.on('moveend', function () { pk.classList.remove('moving'); });
+        } else {
+            pmap.invalidateSize(); pmap.setView(pickFrom, 17, { animate: false });
+        }
+    }
+    function pickClose() { var pk = document.getElementById('picker'); pk.classList.remove('on'); pk.setAttribute('aria-hidden', 'true'); }
+    function pickDone() {
+        var c = pmap.getCenter(), k = pickK, p = [+c.lat.toFixed(6), +c.lng.toFixed(6)];
+        pickClose();
+        if (k === 'from' && located) { pts.from = p; hereNote = t('here-moved'); hereRender(); }
+        else { setPt(k, p); chkSet(k, 'ok', t('chk-moved') + mapPrev(p, k)); }
+        toast(t('pick-saved'));
+    }
+
+    ['from', 'to'].forEach(function (k) {
+        ['addr-', 'house-'].forEach(function (pfx) {
+            document.getElementById(pfx + k).addEventListener('input', function () {
+                if (k === 'from' && located) return;
+                chkSeq[k]++; chkSet(k, ''); setPt(k, null);
+            });
+        });
+        document.getElementById('house-' + k).addEventListener('blur', function () { checkAddr(k); });
+        document.getElementById('addr-' + k).addEventListener('blur', function () { setTimeout(function () { checkAddr(k); }, 200); });
+        document.getElementById('city_' + k).addEventListener('change', function () { addrChanged(k); });
+    });
+    hereRender();
 </script>
 </body>
 </html>
