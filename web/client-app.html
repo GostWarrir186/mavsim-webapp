@@ -81,6 +81,9 @@
         font: inherit; font-size: 13px; font-weight: 700; border-radius: 999px; padding: 7px 14px; cursor: pointer;
     }
     .autofill:active { background: var(--accent-soft); }
+    /* 14.10: тестовая кнопка — клиентам не показываем; видна только с ?dev=1 */
+    .autofill { display: none; }
+    .dev .autofill { display: inline-block; }
 
     /* Откуда / Куда — две отдельные карточки (05.10: «раздели, они вместе стоят») */
     .route-box { display: grid; gap: 10px; }
@@ -835,6 +838,7 @@
 <div class="fb-toast" id="fb-toast"></div>
 
 <script>
+    if (/[?&]dev=1(&|$)/.test(location.search)) document.documentElement.classList.add('dev');
     var tg = (window.Telegram && Telegram.WebApp) ? Telegram.WebApp : null;
     // Открыта ли форма в Telegram. initData не годится: при запуске кнопкой с
     // клавиатуры бота он пустой, и заказ молча не уходил боту. Вне Telegram
