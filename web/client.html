@@ -374,12 +374,17 @@
         if (REGIONS.indexOf(g[0]) === -1) REGIONS.push(g[0]);
         g[4].forEach(function (n) { DIRECTIONS[n] = { region: g[0], base: g[1], perKg: g[2], eta: g[3] }; });
     });
+    // 12.10 (пользователь): пока работаем только по Душанбе — выбор города
+    // убран. Вернуть регионы — добавить их в OPEN_REGIONS.
+    var OPEN_REGIONS = ['Душанбе'];
     ['city_pickup', 'city_delivery'].forEach(function (id) {
-        document.getElementById(id).innerHTML = REGIONS.map(function (r) {
+        var sel = document.getElementById(id);
+        sel.innerHTML = REGIONS.filter(function (r) { return OPEN_REGIONS.indexOf(r) >= 0; }).map(function (r) {
             var opts = Object.keys(DIRECTIONS).filter(function (n) { return DIRECTIONS[n].region === r; })
                 .map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
             return r === 'Душанбе' ? opts : '<optgroup label="' + esc(r) + '">' + opts + '</optgroup>';
         }).join('');
+        if (sel.options.length < 2) sel.closest('.route').parentNode.style.display = 'none';
     });
 
     var T = {

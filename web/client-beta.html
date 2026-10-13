@@ -846,13 +846,23 @@
         if (REGIONS.indexOf(g[0]) < 0) REGIONS.push(g[0]);
         g[4].forEach(function (n) { DIR[n] = { region: g[0], base: g[1], perKg: g[2], eta: g[3] }; });
     });
+    // 12.10 (пользователь): пока только Душанбе — регионы возит Почта, в форме
+    // они не нужны. Вернуть — добавить регионы в OPEN_REGIONS.
+    var OPEN_REGIONS = ['Душанбе'];
     ['city_from', 'city_to'].forEach(function (id) {
-        document.getElementById(id).innerHTML = REGIONS.map(function (r) {
+        var sel = document.getElementById(id);
+        sel.innerHTML = REGIONS.filter(function (r) { return OPEN_REGIONS.indexOf(r) >= 0; }).map(function (r) {
             var o = Object.keys(DIR).filter(function (n) { return DIR[n].region === r; })
                 .map(function (n) { return '<option>' + n + '</option>'; }).join('');
             return r === 'Душанбе' ? o : '<optgroup label="' + r + '">' + o + '</optgroup>';
         }).join('');
+        sel.hidden = sel.options.length < 2;
     });
+    function setCity(id, v) {   // старый заказ в регион повторяем уже по Душанбе
+        var sel = document.getElementById(id);
+        sel.value = v;
+        if (sel.selectedIndex < 0) sel.value = 'Душанбе';
+    }
     function calc() {
         var a = DIR[document.getElementById('city_from').value], b = DIR[document.getElementById('city_to').value];
         var tr = a.base >= b.base ? a : b;
@@ -1387,7 +1397,7 @@
         document.getElementById('addr-to').value = to[0]; document.getElementById('house-to').value = to[1];
         document.getElementById('porch-to').value = to[2];
         document.getElementById('r_name').value = o.rName; document.getElementById('r_phone').value = o.rPhone;
-        document.getElementById('city_from').value = o.cityFrom; document.getElementById('city_to').value = o.cityTo;
+        setCity('city_from', o.cityFrom); setCity('city_to', o.cityTo);
         document.getElementById('weight').value = o.weight;
         var k = { 'Документы': 'docs', 'Маленькая': 's', 'Средняя': 'm', 'Большая': 'l' }[o.size];
         if (k) setSize(k); else calc();
