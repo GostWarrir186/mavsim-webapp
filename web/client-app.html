@@ -775,12 +775,13 @@
                 </div>
                 <div class="field">
                     <label class="label" for="p-name" data-i18n="p-name">Имя и фамилия</label>
-                    <input class="input" id="p-name" readonly>
+                    <input class="input" id="p-name" maxlength="60" autocomplete="name" oninput="profDirty()">
                 </div>
                 <div class="field">
                     <label class="label" for="p-phone" data-i18n="p-phone">Телефон для курьера</label>
-                    <label class="tel" id="p-tel"><b>+992</b><input id="p-phone" type="tel" inputmode="numeric" placeholder="XX XXX XX XX" readonly></label>
+                    <label class="tel" id="p-tel"><b id="p-cc">+992</b><input id="p-phone" type="tel" inputmode="tel" placeholder="XX XXX XX XX" oninput="profPhoneInput(this)"></label>
                     <div class="tg-note" id="tg-note"></div>
+                    <button type="button" class="btn btn-primary btn-block" id="p-save" style="margin-top:12px;display:none" onclick="saveProfile()" data-i18n="p-save">Сохранить</button>
                 </div>
             </div>
 
@@ -902,7 +903,7 @@
             'cancel-q2': 'Отменить заказ {id}?\nЕсли посылка уже у курьера — он вернёт её вам.',
             'done-next': 'Менеджер подтвердит заказ, курьер позвонит перед приездом. Статус — в «Мои заказы».',
             'cab': 'Кабинет', 'who-sub': 'Отправитель в ваших заказах', 'p-name': 'Имя и фамилия',
-            'p-phone': 'Телефон для курьера', 'tg-num': 'Telegram привязан к {n} — курьер будет звонить на номер выше',
+            'p-phone': 'Телефон для курьера', 'p-save': 'Сохранить', 'p-saved': 'Сохранено', 'p-err-name': 'Впишите имя и фамилию', 'p-err-phone': 'Проверьте номер: 9 цифр после +992', 'p-err-save': 'Не сохранилось — попробуйте ещё раз', 'tg-num': 'Telegram привязан к {n} — курьер будет звонить на номер выше',
             'save': 'Сохранить', 'saved': 'Сохранено', 'my-addr': 'Мои адреса', 'add-addr': '+ Добавить адрес',
             'use-from': 'Откуда', 'use-to': 'Куда', 'history': 'История заказов',
             'f-all': 'Все', 'f-live': 'Активные', 'f-done': 'Доставленные', 'none': 'Пока пусто',
@@ -955,7 +956,7 @@
             'cancel-q2': 'Фармоиши {id}-ро бекор кунем?\nАгар бор аллакай дар курьер бошад — ӯ онро ба шумо бармегардонад.',
             'done-next': 'Менеҷер фармоишро тасдиқ мекунад, курьер пеш аз омадан занг мезанад. Ҳолат — дар «Фармоишҳои ман».',
             'cab': 'Кабинет', 'who-sub': 'Фиристанда дар фармоишҳои шумо', 'p-name': 'Ном ва насаб',
-            'p-phone': 'Телефон барои курьер', 'tg-num': 'Telegram ба {n} пайваст аст — курьер ба рақами боло занг мезанад',
+            'p-phone': 'Телефон барои курьер', 'p-save': 'Захира кардан', 'p-saved': 'Захира шуд', 'p-err-name': 'Ном ва насабро нависед', 'p-err-phone': 'Рақамро санҷед: 9 рақам пас аз +992', 'p-err-save': 'Захира нашуд — боз кӯшиш кунед', 'tg-num': 'Telegram ба {n} пайваст аст — курьер ба рақами боло занг мезанад',
             'save': 'Нигоҳ доштан', 'saved': 'Нигоҳ дошта шуд', 'my-addr': 'Суроғаҳои ман', 'add-addr': '+ Илова кардани суроға',
             'use-from': 'Аз куҷо', 'use-to': 'Ба куҷо', 'history': 'Таърихи фармоишҳо',
             'f-all': 'Ҳама', 'f-live': 'Фаъол', 'f-done': 'Расонидашуда', 'none': 'Ҳоло холӣ',
@@ -1417,6 +1418,37 @@
     }
     // Номер Таджикистана: +992 и ровно 9 цифр. Только цифры, лишнее не впишется,
     // вставленный «+992 90 123 45 67» / «992901234567» сам обрежется до 9.
+    // ── Профиль: имя и телефон можно поменять (14.10) ──
+    // Таджикский номер — «+992» + 9 цифр; иностранный (+7 …) — целиком, без +992
+    function profTj() { var f = PROFILE.full || ''; return !f || f.length === 9 || (f.length === 12 && f.indexOf('992') === 0); }
+    function profFill() {
+        document.getElementById('p-name').value = PROFILE.name;
+        var pp = document.getElementById('p-phone'), tj = profTj();
+        document.getElementById('p-cc').hidden = !tj;
+        pp.placeholder = tj ? 'XX XXX XX XX' : '+7 XXX XXX XX XX';
+        if (tj) { pp.value = PROFILE.phone; fmtPhone(pp); } else pp.value = '+' + PROFILE.full;
+        document.getElementById('p-save').style.display = 'none';
+    }
+    function profPhoneInput(el) { if (!document.getElementById('p-cc').hidden) fmtPhone(el); profDirty(); }
+    function profDirty() {
+        var tj = !document.getElementById('p-cc').hidden, ph = document.getElementById('p-phone').value.replace(/\D/g, '');
+        var changed = document.getElementById('p-name').value.trim() !== PROFILE.name || ph !== (tj ? PROFILE.phone : PROFILE.full);
+        document.getElementById('p-save').style.display = changed ? '' : 'none';
+    }
+    function saveProfile() {
+        var name = document.getElementById('p-name').value.replace(/\s+/g, ' ').trim();
+        var tj = !document.getElementById('p-cc').hidden, d = document.getElementById('p-phone').value.replace(/\D/g, '');
+        if (name.length < 2) return toast(t('p-err-name'));
+        if (tj ? d.length !== 9 : d.length < 10) return toast(t('p-err-phone'));
+        var btn = document.getElementById('p-save'); btn.disabled = true;
+        api('profile', { name: name, phone: tj ? '+992' + d : '+' + d }).then(function (r) {
+            btn.disabled = false;
+            if (!r.ok) return toast(t(r.error === 'name' ? 'p-err-name' : r.error === 'phone' ? 'p-err-phone' : 'p-err-save'));
+            PROFILE.name = r.me.name; PROFILE.full = r.me.phone.replace(/\D/g, ''); PROFILE.phone = PROFILE.full.slice(-9);
+            profFill(); renderCab(); toast(t('p-saved'));
+            try { tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch (e) {}
+        }).catch(function () { btn.disabled = false; toast(t('p-err-save')); });
+    }
     function fmtPhone(el) {
         var d = el.value.replace(/\D/g, '');
         if (d.length > 9 && d.indexOf('992') === 0) d = d.slice(3);
@@ -1432,7 +1464,7 @@
     // ── Кабинет: профиль — из регистрации в боте (?fio=&phone=), история и адреса —
     // в localStorage этой страницы, статусы накатываются из ?d= (их шлёт бот) ──
     var Q = new URLSearchParams(location.search);
-    var PROFILE = { name: Q.get('fio') || '', phone: (Q.get('phone') || '').replace(/\D/g, '').slice(-9) };
+    var PROFILE = { name: Q.get('fio') || '', phone: (Q.get('phone') || '').replace(/\D/g, '').slice(-9), full: (Q.get('phone') || '').replace(/\D/g, '') };
     function load(k) { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { return []; } }
     function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
     var ADDRS = load('beta_addrs');
@@ -1467,6 +1499,7 @@
             if (first && !Q.get('lang') && (r.me.lang === 'tj') !== (lang === 'tj')) setLang(r.me.lang === 'tj' ? 'tj' : 'ru');
             PROFILE.name = r.me.name || PROFILE.name;
             PROFILE.phone = (r.me.phone || '').replace(/\D/g, '').slice(-9);
+            PROFILE.full = (r.me.phone || '').replace(/\D/g, '');
             var old = {}; HIST.forEach(function (o) { old[o.id] = o.status; });
             HIST = r.orders.map(fromServer);
             HIST.forEach(function (o) {      // статус сменился с прошлого раза — анимация шага
@@ -1521,8 +1554,7 @@
         // активные сверху — сортируем при открытии, а не при каждом обновлении,
         // иначе доставленный заказ уезжал вниз прямо во время анимации
         HIST.sort(function (a, b) { return isLive(b) - isLive(a); });
-        document.getElementById('p-name').value = PROFILE.name;
-        var pp = document.getElementById('p-phone'); pp.value = PROFILE.phone; fmtPhone(pp);
+        profFill();
         renderCab();
         var c = document.getElementById('cab'); c.classList.add('on'); c.setAttribute('aria-hidden', 'false'); c.scrollTop = 0;
     }
