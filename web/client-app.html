@@ -623,6 +623,10 @@
                             <label class="pt-box opt">
                                 <input inputmode="numeric" pattern="[0-9]*" class="pt-house" id="porch-from" data-i18n-ph="ph-porch" placeholder="Подъезд" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
+                        <span class="pt-extra">
+                            <label class="pt-box"><span class="cap" data-i18n="cap-landmark">Ориентир</span>
+                                <input class="pt-house" id="comment-from" data-i18n-ph="ph-comment-from" placeholder="магазин, этаж, ворота…"></label>
+                        </span>
                         <div class="chk" id="chk-from"></div>
                         <div class="or" data-i18n="or">или</div>
                         <button type="button" class="here" id="here-from" onclick="hereFrom(event)"></button>
@@ -640,23 +644,16 @@
                             <label class="pt-box opt">
                                 <input inputmode="numeric" pattern="[0-9]*" class="pt-house" id="porch-to" data-i18n-ph="ph-porch" placeholder="Подъезд" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 3)"></label>
                         </span>
+                        <span class="pt-extra">
+                            <label class="pt-box"><span class="cap" data-i18n="cap-landmark">Ориентир</span>
+                                <input class="pt-house" id="comment" data-i18n-ph="ph-comment" placeholder="этаж, магазин рядом, цвет ворот…"></label>
+                        </span>
                         <div class="chk" id="chk-to"></div>
                     </span>
                 </div>
             </div>
             <div class="quick" id="quick"></div>
             <div class="route-note" id="eta"></div>
-
-            <div class="sec tight">
-                <div class="field">
-                    <label class="label" for="comment-from" data-i18n="lbl-comment-from">Ориентир забора</label>
-                    <input class="input" id="comment-from" data-i18n-ph="ph-comment-from" placeholder="Где вас найти: магазин, этаж, ворота…">
-                </div>
-                <div class="field">
-                    <label class="label" for="comment" data-i18n="lbl-comment">Ориентир доставки</label>
-                    <input class="input" id="comment" data-i18n-ph="ph-comment" placeholder="Этаж, рядом с магазином, цвет ворот…">
-                </div>
-            </div>
 
             <div class="sec">
                 <h3 class="sec-title" data-i18n="sec-receiver">Получатель</h3>
@@ -881,8 +878,8 @@
             'hint-done': 'Точки закреплены. Изменить — нажмите на адрес', 'addr-known': '✓ Адрес уже проверен нашими курьерами', 'addr-prev': '✓ Адрес из прошлых заказов — проверьте номер дома', 'now-to': 'Теперь — куда доставить',
             'miss-house': 'Впишите номер дома',
             'pin-from': 'Забрать здесь', 'pin-to': 'Доставить сюда',
-            'lbl-comment': 'Ориентир доставки', 'ph-comment': 'Этаж, рядом с магазином, цвет ворот…',
-            'lbl-comment-from': 'Ориентир забора', 'ph-comment-from': 'Где вас найти: магазин, этаж, ворота…', 'rc-comment-from': 'Ориентир забора',
+            'lbl-comment': 'Ориентир доставки', 'ph-comment': 'этаж, магазин рядом, цвет ворот…', 'cap-landmark': 'Ориентир',
+            'lbl-comment-from': 'Ориентир забора', 'ph-comment-from': 'магазин, этаж, ворота…', 'rc-comment-from': 'Ориентир забора',
             'sec-receiver': 'Получатель', 'ph-r-name': 'Имя получателя',
             'sec-parcel': 'Посылка', 'size-docs': 'Документы', 'size-s': 'Маленькая', 'size-m': 'Средняя', 'size-l': 'Большая',
             'own-size': 'Указать точные размеры', 'change': 'Изменить', 'done-dir': 'Готово', 'deliv': 'Доставка',
@@ -937,8 +934,8 @@
             'hint-done': 'Нуқтаҳо собит шуданд. Барои тағйир — суроғаро пахш кунед', 'addr-known': '✓ Суроға аллакай тасдиқ шудааст', 'addr-prev': '✓ Суроға аз фармоишҳои пешина — рақами хонаро санҷед', 'now-to': 'Акнун — ба куҷо расонидан',
             'miss-house': 'Рақами хонаро нависед',
             'pin-from': 'Аз ин ҷо гирифтан', 'pin-to': 'Ба ин ҷо расонидан',
-            'lbl-comment': 'Нишонаи расондан', 'ph-comment': 'Ошёна, назди мағоза, ранги дарвоза…',
-            'lbl-comment-from': 'Нишонаи гирифтан', 'ph-comment-from': 'Шуморо куҷо ёбем: мағоза, ошёна, дарвоза…', 'rc-comment-from': 'Нишонаи гирифтан',
+            'lbl-comment': 'Нишонаи расондан', 'ph-comment': 'ошёна, мағозаи наздик, ранги дарвоза…', 'cap-landmark': 'Нишона',
+            'lbl-comment-from': 'Нишонаи гирифтан', 'ph-comment-from': 'мағоза, ошёна, дарвоза…', 'rc-comment-from': 'Нишонаи гирифтан',
             'sec-receiver': 'Қабулкунанда', 'ph-r-name': 'Номи қабулкунанда',
             'sec-parcel': 'Бастa', 'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андоза, см',
             'dim-l': 'Дарозӣ', 'dim-w': 'Бар', 'dim-h': 'Баландӣ',
@@ -1069,6 +1066,8 @@
             var a = document.getElementById(p + 'from'), b = document.getElementById(p + 'to'), v = a.value;
             a.value = b.value; b.value = v;
         });
+        var lf = document.getElementById('comment-from'), lt = document.getElementById('comment'), l = lf.value;
+        lf.value = lt.value; lt.value = l;
         var cf = document.getElementById('city_from'), ct = document.getElementById('city_to'), c = cf.value;
         cf.value = ct.value; ct.value = c;
         var pf = pts.from; pts.from = pts.to; pts.to = pf;
