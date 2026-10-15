@@ -913,6 +913,8 @@
             'st-NEW': 'Заказ создан', 'st-SEARCH': 'Ищем курьера', 'st-PICKUP': 'Курьер едет на точку сбора',
             'st-TRANSIT': 'Курьер едет к получателю', 'st-HANDOVER': 'Курьер передаёт заказ',
             'st-DELIVERED': 'Доставлено', 'st-CANCELLED': 'Отменён',
+            'st-ASSIGNED': 'Курьер назначен', 'q-ahead': 'Курьер {c} назначен · развозит заказы, перед вами ещё {n}',
+            'q-next': 'Курьер {c} назначен · ваш заказ следующий',
             'repeat': 'Повторить', 'cancel-ord': 'Отменить заказ', 'cancel-q': 'Отменить заказ {id}?', 'cancel-test': 'Тест: в Telegram заказ отменился бы', 'support': 'Поддержка', 'support-w': 'Написать в поддержку', 'courier': 'Курьер', 'recv': 'Получатель', 'parcel': 'Посылка',
             'repeated': 'Форма заполнена как в заказе {id}', 'addr-set': 'Адрес подставлен',
             'new-addr': 'Поставьте метку на карте и впишите дом — потом нажмите «Сохранить адрес» (в боевой версии)',
@@ -967,6 +969,8 @@
             'st-NEW': 'Фармоиш сохта шуд', 'st-SEARCH': 'Курьер ҷустуҷӯ мешавад', 'st-PICKUP': 'Курьер ба нуқтаи гирифтан меравад',
             'st-TRANSIT': 'Курьер ба қабулкунанда меравад', 'st-HANDOVER': 'Курьер фармоишро месупорад',
             'st-DELIVERED': 'Расонида шуд', 'st-CANCELLED': 'Бекор шуд',
+            'st-ASSIGNED': 'Курьер таъин шуд', 'q-ahead': 'Курьер {c} таъин шуд · фармоишҳоро мерасонад, пеш аз шумо боз {n}',
+            'q-next': 'Курьер {c} таъин шуд · фармоиши шумо навбатӣ аст',
             'repeat': 'Такрор', 'cancel-ord': 'Бекор кардан', 'cancel-q': 'Фармоиши {id}-ро бекор кунем?', 'cancel-test': 'Санҷиш: дар Telegram фармоиш бекор мешуд', 'support': 'Дастгирӣ', 'support-w': 'Ба дастгирӣ навиштан', 'courier': 'Курьер', 'recv': 'Қабулкунанда', 'parcel': 'Баста',
             'repeated': 'Форма мисли фармоиши {id} пур шуд', 'addr-set': 'Суроға гузошта шуд',
             'new-addr': 'Аломатро дар харита гузоред ва хонаро нависед (дар версияи корӣ)',
@@ -1489,13 +1493,18 @@
     function fromServer(o) {
         var st = FROM_SHEET[o.status] || 'NEW', times = [hm(o.accepted_at)];
         // Передан в Relog: у нас «взят» курьером «Relog», а курьера назначат там — для клиента это «ищем курьера»
-        var viaRelog = o.courier === 'Relog';
-        if (viaRelog && st === 'PICKUP') st = 'SEARCH';
+        var viaRelog = o.courier === 'Relog', rl = o.relog, q = null;
+        // 15.10: курьер Relog назначен, но ещё не выехал за посылкой — кто и сколько заказов перед вами
+        if (viaRelog && st === 'PICKUP' && !(rl && (rl.pickup === 'isGoing' || rl.pickup === 'waiting'))) {
+            st = 'SEARCH';
+            if (rl && rl.courier) q = { c: rl.courier.split(/\s+/).slice(0, 2).join(' '), n: rl.ahead || 0 };
+        }
         if (st === 'DELIVERED') times[5] = hm(o.delivered_at);
         return { id: o.id, date: (o.accepted_at || '').slice(0, 5) + ' ' + hm(o.accepted_at), status: st, times: times,
                  from: o.addr_from, to: o.addr_to, cityFrom: o.city_from, cityTo: o.city_to,
                  rName: o.r_name, rPhone: (o.r_phone || '').replace(/\D/g, '').replace(/^992(?=\d{9}$)/, '').replace(/^(\d{2})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4'), size: '',
-                 weight: o.weight, price: o.price, courier: viaRelog ? '' : o.courier };
+                 weight: o.weight, price: o.price, q: q,
+                 courier: viaRelog ? (rl && rl.courier || '') : (o.courier || '').replace(/^Relog:\s*/, '') };
     }
     function loadOrders(first) {
         if (!APP) return;
@@ -1620,7 +1629,8 @@
         var prog = (live || just != null) && o.status !== 'CANCELLED'
             ? '<div class="prog' + (fin ? ' fin' : '') + '">' + STEPS.map(function (s, i) {
                   return '<i class="' + (i <= idx ? 'on' : '') + (i === just ? ' grow' : '') + '"></i>'; }).join('') + '</div>' +
-              '<div class="prog-l' + (fin ? ' fin' : '') + (just != null ? ' just' : '') + '">' + t('st-' + o.status) + '</div>'
+              '<div class="prog-l' + (fin ? ' fin' : '') + (just != null ? ' just' : '') + '">' +
+                  (o.q ? esc(t(o.q.n > 0 ? 'q-ahead' : 'q-next').replace('{c}', o.q.c).replace('{n}', o.q.n)) : t('st-' + o.status)) + '</div>'
             : '';
         var tl = o.status === 'CANCELLED'
             ? '<div class="tl"><div class="tl-i done"><span>' + t('st-NEW') + '</span><span>' + o.times[0] + '</span></div>' +
@@ -1632,14 +1642,14 @@
             }).join('') + '</div>';
         return '<div class="ord' + (live ? ' live' : '') + (openOrd === o.id ? ' open' : '') + '" onclick="toggleOrd(\'' + o.id + '\')">' +
             '<div class="ord-top"><span class="ord-id">' + o.id + '</span><span class="ord-date">· ' + o.date + '</span>' +
-            '<span class="st-badge ' + BADGE[o.status] + (just != null ? ' flash' : '') + '">' + t('st-' + o.status) + '</span></div>' +
+            '<span class="st-badge ' + (o.q ? 's-taken' : BADGE[o.status]) + (just != null ? ' flash' : '') + '">' + t(o.q ? 'st-ASSIGNED' : 'st-' + o.status) + '</span></div>' +
             '<div class="ord-route">' + esc(o.from) + ' <span class="arr">→</span> ' + esc(o.to) + '</div>' +
             '<div class="ord-sub"><span>' + esc(o.cityFrom === o.cityTo ? o.cityFrom : o.cityFrom + ' → ' + o.cityTo) + '</span><b>' + o.price + ' TJS</b></div>' +
             prog +
             '<div class="ord-more" onclick="event.stopPropagation()">' + tl +
                 '<div class="kv2"><span>' + t('recv') + ':</span> ' + esc(o.rName) + ', +992 ' + esc(o.rPhone) + '<br>' +
                 '<span>' + t('parcel') + ':</span> ' + esc((o.size ? o.size + ', ' : '') + o.weight + ' кг') +
-                (o.courier && isLive(o) && o.status !== 'SEARCH' ? '<br><span>' + t('courier') + ':</span> ' + esc(o.courier) : '') + '</div>' +
+                (o.courier && isLive(o) && (o.status !== 'SEARCH' || o.q) ? '<br><span>' + t('courier') + ':</span> ' + esc(o.courier) : '') + '</div>' +
                 '<div class="ord-acts"><button onclick="support(\'' + o.id + '\')">' + t('support') + '</button>' +
                 (CANCELLABLE.indexOf(o.status) >= 0
                     ? '<button class="rep" onclick="cancelOrd(\'' + o.id + '\')">' + t('cancel-ord') + '</button>'
