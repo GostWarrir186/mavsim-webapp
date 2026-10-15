@@ -204,6 +204,9 @@
     .size span { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
     .size[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
     .size[aria-pressed="true"] span { color: var(--accent); }
+    .sizes.when { grid-template-columns: repeat(3, 1fr); }
+    .sizes.when .size { text-align: center; }
+    #when-date { margin-top: 8px; }
     .own { margin-top: 10px; }
     .own summary { cursor: pointer; font-size: 13.5px; font-weight: 650; color: var(--ink-2); list-style: none; padding: 4px 2px; }
     .own summary::-webkit-details-marker { display: none; }
@@ -655,6 +658,17 @@
             <div class="quick" id="quick"></div>
             <div class="route-note" id="eta"></div>
 
+            <!-- 16.10: забор не сегодня — заказ заранее на нужный день; видят, у кого включено «sched» -->
+            <div class="sec" id="when-sec" hidden>
+                <h3 class="sec-title" data-i18n="sec-when">Когда забрать</h3>
+                <div class="sizes when" id="when">
+                    <button type="button" class="size" data-when="today" aria-pressed="true" onclick="setWhen('today')"><b data-i18n="when-today">Сегодня</b></button>
+                    <button type="button" class="size" data-when="tom" aria-pressed="false" onclick="setWhen('tom')"><b data-i18n="when-tom">Завтра</b></button>
+                    <button type="button" class="size" data-when="other" aria-pressed="false" onclick="setWhen('other')"><b data-i18n="when-other">Другой день</b></button>
+                </div>
+                <input class="input mono" id="when-date" type="date" hidden>
+            </div>
+
             <div class="sec">
                 <h3 class="sec-title" data-i18n="sec-receiver">Получатель</h3>
                 <div class="field">
@@ -890,6 +904,8 @@
             'lbl-comment': 'Ориентир доставки', 'ph-comment': 'этаж, магазин рядом, цвет ворот…', 'cap-landmark': 'Ориентир',
             'lbl-comment-from': 'Ориентир забора', 'ph-comment-from': 'магазин, этаж, ворота…', 'rc-comment-from': 'Ориентир забора',
             'sec-receiver': 'Получатель', 'ph-r-name': 'Имя получателя',
+            'sec-when': 'Когда забрать', 'when-today': 'Сегодня', 'when-tom': 'Завтра', 'when-other': 'Другой день',
+            'rc-when': 'Курьер заберёт', 'when-bad': 'Выберите день — не позже чем через 14 дней',
             'sec-cod': 'Оплата за товар', 'ph-cod': 'Сумма, TJS — если есть',
             'cod-hint': 'Покупатель платит за товар курьеру наличными — впишите сумму. За доставку курьер деньги не берёт.', 'rc-cod': 'Взять за товар', 'cod-bad': 'Проверьте сумму за товар',
             'sec-parcel': 'Посылка', 'size-docs': 'Документы', 'size-s': 'Маленькая', 'size-m': 'Средняя', 'size-l': 'Большая',
@@ -950,6 +966,8 @@
             'lbl-comment': 'Нишонаи расондан', 'ph-comment': 'ошёна, мағозаи наздик, ранги дарвоза…', 'cap-landmark': 'Нишона',
             'lbl-comment-from': 'Нишонаи гирифтан', 'ph-comment-from': 'мағоза, ошёна, дарвоза…', 'rc-comment-from': 'Нишонаи гирифтан',
             'sec-receiver': 'Қабулкунанда', 'ph-r-name': 'Номи қабулкунанда',
+            'sec-when': 'Кай гирифтан', 'when-today': 'Имрӯз', 'when-tom': 'Пагоҳ', 'when-other': 'Рӯзи дигар',
+            'rc-when': 'Курьер мегирад', 'when-bad': 'Рӯзро интихоб кунед — на дертар аз 14 рӯз',
             'sec-cod': 'Пардохт барои мол', 'ph-cod': 'Маблағ, TJS — агар бошад',
             'cod-hint': 'Агар харидор барои мол ба курьер нақд пардохт кунад — маблағро нависед. Барои расонидан курьер пул намегирад.', 'rc-cod': 'Барои мол гирифтан', 'cod-bad': 'Маблағи молро санҷед',
             'sec-parcel': 'Бастa', 'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андоза, см',
@@ -1205,6 +1223,8 @@
             }
             (el.closest('.pt-box, .tel') || el).classList.remove('miss');
         }
+        var when = pickupDate();
+        if (when === null) { document.getElementById('when-date').focus(); return toast(t('when-bad')); }
         var codRaw = document.getElementById('cod-sec').hidden ? '' : document.getElementById('cod').value.replace(',', '.').trim();
         var cod = codRaw ? +codRaw : 0;
         if (codRaw && !(cod > 0 && cod <= 50000)) { document.getElementById('cod').focus(); return toast(t('cod-bad')); }
@@ -1229,6 +1249,7 @@
         var id = 'Z-' + p2(now.getDate()) + p2(now.getMonth() + 1) + '-' + rnd;
         data.order_id = id;
         data.cod = cod ? cod.toFixed(2) : '';
+        data.pickup_date = when;
         data.lang = lang;
         data.s_name = PROFILE.name;
         data.delivery_type = 'door';
@@ -1261,6 +1282,7 @@
         var kv = [[t('recv'), data.r_name + ', +992 ' + item.rPhone], [t('parcel'), item.size + ', ' + item.weight + ' кг']];
         if (data.driver_comment_from && data.driver_comment_from !== DASH) kv.push([t('rc-comment-from'), data.driver_comment_from]);
         if (data.driver_comment && data.driver_comment !== DASH) kv.push([t('rc-comment'), data.driver_comment]);
+        if (data.pickup_date) kv.push([t('rc-when'), data.pickup_date.split('-').reverse().join('.')]);
         if (data.cod) kv.push([t('rc-cod'), data.cod + ' TJS']);
         kv.push([t('deliv'), document.getElementById('bar-eta').textContent.replace(/^[^·]*·\s*/, '')]);
         document.getElementById('rc-kv').innerHTML = kv.map(function (r) { return '<dt>' + e(r[0]) + '</dt><dd>' + e(r[1]) + '</dd>'; }).join('');
@@ -1531,6 +1553,7 @@
             if (first && !Q.get('lang') && (r.me.lang === 'tj') !== (lang === 'tj')) setLang(r.me.lang === 'tj' ? 'tj' : 'ru');
             PROFILE.name = r.me.name || PROFILE.name;
             document.getElementById('cod-sec').hidden = !r.me.cod;
+            document.getElementById('when-sec').hidden = !r.me.sched;
             PROFILE.phone = (r.me.phone || '').replace(/\D/g, '').slice(-9);
             PROFILE.full = (r.me.phone || '').replace(/\D/g, '');
             var old = {}; HIST.forEach(function (o) { old[o.id] = o.status; });
@@ -1633,6 +1656,25 @@
         setActive(k);
         toast(t('addr-set'));
         addrChanged(k);
+    }
+
+    // ── Когда забрать: '' — сегодня, иначе «гггг-мм-дд»; null — день не выбран или вне 14 дней ──
+    function ymdOf(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    function dayFrom(n) { var d = new Date(); d.setDate(d.getDate() + n); return ymdOf(d); }
+    var whenMode = 'today';
+    function setWhen(k) {
+        whenMode = k;
+        document.querySelectorAll('#when .size').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.when === k)); });
+        var inp = document.getElementById('when-date');
+        inp.hidden = k !== 'other';
+        inp.min = dayFrom(2); inp.max = dayFrom(14);
+        if (k === 'other' && !inp.value) inp.value = dayFrom(2);
+    }
+    function pickupDate() {
+        if (document.getElementById('when-sec').hidden || whenMode === 'today') return '';
+        if (whenMode === 'tom') return dayFrom(1);
+        var v = document.getElementById('when-date').value;
+        return v && v >= dayFrom(1) && v <= dayFrom(14) ? v : null;
     }
 
     function setHF(f) {
